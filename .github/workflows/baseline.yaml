@@ -1,0 +1,34 @@
+name: Comparison bot (Metaculus template, secondary account)
+
+# Manual only for now. It spends the same donated credits as the main bot.
+# To run it on a schedule once the main bot is live, uncomment the schedule block.
+on:
+  workflow_dispatch:
+  # schedule:
+  #   - cron: "12,32,52 * * * *"
+
+concurrency:
+  group: baseline
+  cancel-in-progress: false
+
+jobs:
+  baseline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Install dependencies
+        run: uv sync --locked --no-dev
+      - name: Forecast with the template
+        run: uv run --no-sync python main.py --mode baseline
+        env:
+          METACULUS_TOKEN: ${{ secrets.METACULUS_BASELINE_TOKEN }}
+          METACULUS_BASELINE_TOKEN: ${{ secrets.METACULUS_BASELINE_TOKEN }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          ASKNEWS_CLIENT_ID: ${{ secrets.ASKNEWS_CLIENT_ID }}
+          ASKNEWS_SECRET: ${{ secrets.ASKNEWS_SECRET }}
+          ASKNEWS_API_KEY: ${{ secrets.ASKNEWS_API_KEY }}

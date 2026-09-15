@@ -1,0 +1,33 @@
+name: Forecast on new tournament questions
+
+on:
+  workflow_dispatch:
+  # Off until the bot has been proven on the bot-testing area. To go live, uncomment:
+  # schedule:
+  #   - cron: "7,27,47 * * * *" # every 20 minutes, off the hour; already-forecast questions are skipped
+
+# Never run two forecasting jobs at once: each question accepts exactly one forecast.
+concurrency:
+  group: forecast
+  cancel-in-progress: false
+
+jobs:
+  forecast:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Install dependencies
+        run: uv sync --locked --no-dev
+      - name: Forecast
+        run: uv run --no-sync python main.py --mode tournament
+        env:
+          METACULUS_TOKEN: ${{ secrets.METACULUS_TOKEN }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          ASKNEWS_CLIENT_ID: ${{ secrets.ASKNEWS_CLIENT_ID }}
+          ASKNEWS_SECRET: ${{ secrets.ASKNEWS_SECRET }}
+          ASKNEWS_API_KEY: ${{ secrets.ASKNEWS_API_KEY }}

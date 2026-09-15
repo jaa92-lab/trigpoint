@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.env
+.env.*
+!.env.template
+data/
+runs/
+logs/
+
+# Local handoff notes: personal context, not for the public repo
+HANDOFF.md

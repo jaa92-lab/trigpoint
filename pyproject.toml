@@ -1,0 +1,23 @@
+[project]
+name = "forecaster"
+version = "0.1.0"
+description = "Evidence-diverse forecasting bot for Metaculus FutureEval tournaments"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+    "forecasting-tools==0.3.1",
+    "asknews>=0.14.3",
+    "httpx>=0.28",
+    "python-dotenv>=1.0",
+    "numpy>=2.0",
+]
+
+[dependency-groups]
+dev = ["pytest>=8", "pytest-asyncio>=0.24"]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+asyncio_mode = "auto"
