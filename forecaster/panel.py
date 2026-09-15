@@ -7,6 +7,7 @@ can be tested directly.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from datetime import datetime, timezone
 
 from forecaster import aggregate as agg
 from forecaster.analysts import AnalystResult
@@ -109,6 +110,11 @@ def format_value(value: object, question_type: str) -> str:
         return f"{float(value):.1%}"
     if question_type == "multiple_choice":
         return ", ".join(f"{option} {p:.0%}" for option, p in value.items())
+    if question_type == "date":
+        return ", ".join(
+            f"P{round(level * 100)} {datetime.fromtimestamp(v, tz=timezone.utc):%Y-%m-%d}"
+            for level, v in sorted(value.items())
+        )
     return ", ".join(f"P{round(level * 100)} {v:,.4g}" for level, v in sorted(value.items()))
 
 

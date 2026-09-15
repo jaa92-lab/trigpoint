@@ -1,19 +1,24 @@
 """Resolved questions for pastcasting: fetch once, store locally, reload.
 
 Fetching needs METACULUS_TOKEN, because Metaculus's API requires an account even
-for reads. Stored files contain only public question data.
+for reads. Accounts on the restricted API tier get closed questions back with no
+text or resolution unless the account forecast on them. Those are counted as
+hidden, so a fetch that saves nothing can say why. Stored files contain only
+public question data.
 """
 
 from __future__ import annotations
 
 import json
 from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
 
 import forecasting_tools
 from forecasting_tools import (
     ApiFilter,
     BinaryQuestion,
+    DateQuestion,
     MetaculusClient,
     MetaculusQuestion,
     MultipleChoiceQuestion,
@@ -21,7 +26,20 @@ from forecasting_tools import (
 )
 from forecasting_tools.data_models.questions import CanceledResolution
 
-SCOREABLE_CLASSES = (BinaryQuestion, MultipleChoiceQuestion, NumericQuestion)
+SCOREABLE_CLASSES = (BinaryQuestion, MultipleChoiceQuestion, NumericQuestion, DateQuestion)
+HIDDEN_RESOLUTION_WARNING = (
+    "Warning: {count} resolved questions came back with no resolution. Metaculus hides the text and "
+    "resolution of closed questions from accounts on the restricted API tier, except questions the "
+    "account forecast on. Request the Bot Benchmarking Access Tier through the Metaculus Data Needs "
+    "Form (linked from https://www.metaculus.com/api/), then fetch again."
+)
+
+
+@dataclass
+class FetchResult:
+    questions: list[MetaculusQuestion]
+    fetched: int
+    hidden: int
 
 
 def is_scoreable(question: MetaculusQuestion) -> bool:
@@ -36,19 +54,28 @@ def is_scoreable(question: MetaculusQuestion) -> bool:
     return resolution is not None and not isinstance(resolution, CanceledResolution)
 
 
+def is_hidden(question: MetaculusQuestion) -> bool:
+    """Resolved on Metaculus, but the API withheld the resolution."""
+    return isinstance(question, SCOREABLE_CLASSES) and question.resolution_string is None
+
+
 async def fetch_resolved(
     client: MetaculusClient, tournaments: Sequence[str | int], max_questions: int = 500
-) -> list[MetaculusQuestion]:
+) -> FetchResult:
     api_filter = ApiFilter(
         allowed_tournaments=list(tournaments),
         allowed_statuses=["resolved"],
-        allowed_types=["binary", "multiple_choice", "numeric", "discrete"],
+        allowed_types=["binary", "multiple_choice", "numeric", "discrete", "date"],
         group_question_mode="unpack_subquestions",
     )
     questions = await client.get_questions_matching_filter(
         api_filter, num_questions=max_questions, error_if_question_target_missed=False
     )
-    return [q for q in questions if is_scoreable(q)]
+    return FetchResult(
+        questions=[q for q in questions if is_scoreable(q)],
+        fetched=len(questions),
+        hidden=sum(1 for q in questions if is_hidden(q)),
+    )
 
 
 def save_questions(questions: Sequence[MetaculusQuestion], path: str | Path) -> None:

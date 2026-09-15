@@ -33,7 +33,7 @@ def build_parser() -> argparse.ArgumentParser:
     past.add_argument("--data", default="data/holdout.jsonl")
     past.add_argument("--limit", type=int, default=40)
     past.add_argument("--runs", type=int, default=1)
-    past.add_argument("--disable", default="", help="Comma list: news, markets, prices, sources, grounding, prior, escalation")
+    past.add_argument("--disable", default="", help="Comma list: news, markets, prices, sources, weather, grounding, prior, escalation, resample")
     past.add_argument("--delay-minutes", type=float, default=10.0)
     past.add_argument("--cache-dir", default="data/cache")
     past.add_argument("--out-dir", default=None)
@@ -44,11 +44,15 @@ def build_parser() -> argparse.ArgumentParser:
 async def fetch_command(args: argparse.Namespace) -> int:
     from forecasting_tools import MetaculusClient
 
-    from forecaster.evaluation.dataset import fetch_resolved, save_questions
+    from forecaster.evaluation import dataset
 
-    questions = await fetch_resolved(MetaculusClient(), args.tournament, args.max_questions)
-    save_questions(questions, args.out)
-    print(f"Saved {len(questions)} scoreable resolved questions to {args.out}")
+    result = await dataset.fetch_resolved(MetaculusClient(), args.tournament, args.max_questions)
+    dataset.save_questions(result.questions, args.out)
+    print(f"Saved {len(result.questions)} scoreable resolved questions to {args.out} ({result.fetched} fetched).")
+    if result.hidden:
+        print(dataset.HIDDEN_RESOLUTION_WARNING.format(count=result.hidden))
+        if not result.questions:
+            return 1
     return 0
 
 

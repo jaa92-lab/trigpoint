@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 import pytest
 
 from forecaster import panel
@@ -96,3 +98,11 @@ def test_report_lists_every_analyst_with_flags_and_errors():
     assert "### data (m): no forecast (timed out)" in text
     assert "Markets were skipped." in text
     assert "Estimated analyst spend: $0.12" in text
+
+
+def test_date_values_are_reported_as_dates():
+    quantiles = {
+        0.1: datetime(2026, 10, 1, tzinfo=timezone.utc).timestamp(),
+        0.9: datetime(2026, 10, 30, tzinfo=timezone.utc).timestamp(),
+    }
+    assert panel.format_value(quantiles, "date") == "P10 2026-10-01, P90 2026-10-30"

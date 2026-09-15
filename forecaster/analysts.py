@@ -12,7 +12,7 @@ import asyncio
 import re
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 
 from forecaster.budget import CostLedger, estimate_tokens
 from forecaster.config import AnalystSpec
@@ -37,7 +37,10 @@ FallbackParse = Callable[[str], Awaitable[object | None]]
 
 @dataclass(frozen=True)
 class QuestionView:
-    """The parts of a question the prompts need, independent of the framework."""
+    """The parts of a question the prompts need, independent of the framework.
+
+    Date questions carry their bounds as UTC timestamps.
+    """
 
     title: str
     question_type: str
@@ -76,6 +79,10 @@ def _fmt_time(value: datetime | None) -> str:
     return f"{value:%Y-%m-%d %H:%M} UTC" if value else "not stated"
 
 
+def _fmt_date(timestamp: float) -> str:
+    return f"{datetime.fromtimestamp(timestamp, tz=timezone.utc):%Y-%m-%d}"
+
+
 def _timing(question: QuestionView, now: datetime) -> str:
     parts = [
         f"Today is {now:%Y-%m-%d %H:%M} UTC.",
@@ -91,6 +98,15 @@ def _timing(question: QuestionView, now: datetime) -> str:
 def bounds_message(question: QuestionView) -> str:
     if question.lower_bound is None or question.upper_bound is None:
         return ""
+    if question.question_type == "date":
+        earliest, latest = _fmt_date(question.lower_bound), _fmt_date(question.upper_bound)
+        low = (
+            f"is likely not earlier than {earliest}"
+            if question.open_lower_bound
+            else f"cannot be earlier than {earliest}"
+        )
+        high = f"is likely not later than {latest}" if question.open_upper_bound else f"cannot be later than {latest}"
+        return f"The outcome {low}, and it {high}."
     unit = f" {question.unit}" if question.unit else ""
     low = (
         f"is likely not lower than {question.lower_bound:,g}{unit}"
@@ -114,6 +130,14 @@ def answer_format(question: QuestionView) -> str:
             "End your answer with one line per option, in this order, in exactly this form. "
             "The percentages must add up to 100.\n" + lines
         )
+    if question.question_type == "date":
+        lines = "\n".join(f"Percentile {label}: YYYY-MM-DD" for label in PERCENTILE_LABELS)
+        return (
+            f"{bounds_message(question)}\n"
+            "Give each value as a date, YYYY-MM-DD, adding THH:MMZ in UTC only if the hour matters. "
+            "Dates must get later from Percentile 10 to Percentile 90.\n"
+            "End your answer with exactly these lines:\n" + lines
+        ).strip()
     unit = question.unit or "the units the question asks for"
     lines = "\n".join(f"Percentile {label}: X" for label in PERCENTILE_LABELS)
     return (
@@ -156,6 +180,10 @@ def build_prompt(spec: AnalystSpec, question: QuestionView, evidence_text: str, 
 
 _PROBABILITY = re.compile(r"probability\s*[:=]\s*(\d{1,3}(?:\.\d+)?)\s*%", re.IGNORECASE)
 _PERCENTILE = re.compile(r"percentile\s*(\d{1,2})\s*[:=]\s*(-?\d[\d,]*(?:\.\d+)?)", re.IGNORECASE)
+_DATE_PERCENTILE = re.compile(
+    r"percentile\s*(\d{1,2})\s*[:=]\s*(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2}))?)?",
+    re.IGNORECASE,
+)
 
 
 def parse_binary(text: str) -> float | None:
@@ -186,18 +214,39 @@ def parse_multiple_choice(text: str, options: Sequence[str]) -> dict[str, float]
     return {option: value / total for option, value in found.items()}
 
 
-def parse_percentiles(text: str) -> dict[float, float] | None:
-    found: dict[float, float] = {}
-    for label, raw in _PERCENTILE.findall(text):
-        level = int(label)
-        if level in PERCENTILE_LABELS:
-            found[level / 100] = float(raw.replace(",", ""))
+def _complete_and_increasing(found: dict[float, float]) -> dict[float, float] | None:
     if len(found) != len(PERCENTILE_LABELS):
         return None
     values = [found[label / 100] for label in PERCENTILE_LABELS]
     if any(later < earlier for earlier, later in zip(values, values[1:])):
         return None
     return found
+
+
+def parse_percentiles(text: str) -> dict[float, float] | None:
+    found: dict[float, float] = {}
+    for label, raw in _PERCENTILE.findall(text):
+        level = int(label)
+        if level in PERCENTILE_LABELS:
+            found[level / 100] = float(raw.replace(",", ""))
+    return _complete_and_increasing(found)
+
+
+def parse_date_percentiles(text: str) -> dict[float, float] | None:
+    """Percentile dates as UTC timestamps, the axis date questions are forecast on."""
+    found: dict[float, float] = {}
+    for label, year, month, day, hour, minute, second in _DATE_PERCENTILE.findall(text):
+        level = int(label)
+        if level not in PERCENTILE_LABELS:
+            continue
+        try:
+            moment = datetime(
+                int(year), int(month), int(day), int(hour or 0), int(minute or 0), int(second or 0), tzinfo=timezone.utc
+            )
+        except ValueError:
+            return None
+        found[level / 100] = moment.timestamp()
+    return _complete_and_increasing(found)
 
 
 # ------------------------------------------------------------- runner

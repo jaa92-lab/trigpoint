@@ -17,7 +17,11 @@ SOURCE_HEADINGS = {
     "news": "News coverage",
     "markets": "Prediction markets on related questions",
     "sources": "Resolution source pages",
+    "weather": "Weather model forecasts",
 }
+# Sources only some question kinds gather. When empty they are left out of the
+# prompt, instead of printing "Nothing was found" on every other question.
+OPTIONAL_SOURCES = frozenset({"weather"})
 
 
 @dataclass(frozen=True)
@@ -100,7 +104,8 @@ class EvidenceBundle:
             heading = SOURCE_HEADINGS.get(source, source.title())
             items = self.by_source(source)
             if not items:
-                parts.append(f"## {heading}\nNothing was found.")
+                if source not in OPTIONAL_SOURCES:
+                    parts.append(f"## {heading}\nNothing was found.")
                 continue
             parts.append("\n\n".join([f"## {heading}"] + [render_item(i) for i in items]))
         if not parts:

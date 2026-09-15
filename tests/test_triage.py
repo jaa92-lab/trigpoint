@@ -29,6 +29,11 @@ REAL_MINIBENCH_TITLES = [
     ("Will Trump have formally nominated a permanent Secretary of the Army by September 18, 2026?", "binary", "event"),
     ("How many combined points will be scored in the Detroit Lions at Buffalo Bills game on September 17, 2026?", "numeric", "sports"),
     ("Will Zcash (ZEC) trade above $1,100 on September 17 or 18, 2026?", "binary", "price_threshold"),
+    # From earlier MiniBench rounds, summer 2026
+    ("What will be the high temperature at NYC Central Park on August 20, 2026?", "numeric", "weather"),
+    ("Will Central Park record measurable precipitation on August 20, 2026?", "binary", "weather"),
+    # Written for the plain word "rain", which once fell through to generic
+    ("How much rain will fall in New York City's Central Park between September 20 and September 22, 2026?", "numeric", "weather"),
 ]
 
 

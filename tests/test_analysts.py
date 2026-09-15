@@ -7,6 +7,7 @@ from forecaster.analysts import (
     QuestionView,
     build_prompt,
     parse_binary,
+    parse_date_percentiles,
     parse_multiple_choice,
     parse_percentiles,
     run_analyst,
@@ -122,3 +123,30 @@ async def test_run_analyst_reports_failures_without_raising():
 
     unparsed = await run_analyst(SPEC, "p", unparseable, parse_binary, timeout=5)
     assert not unparsed.ok and unparsed.rationale == "no idea"
+
+
+def test_date_prompt_asks_for_dates_within_the_bounds():
+    question = QuestionView(
+        title="When will the report be published?",
+        question_type="date",
+        lower_bound=datetime(2026, 9, 20, tzinfo=timezone.utc).timestamp(),
+        upper_bound=datetime(2026, 12, 31, tzinfo=timezone.utc).timestamp(),
+        open_lower_bound=False,
+        open_upper_bound=True,
+    )
+    prompt = build_prompt(SPEC, question, "none", NOW)
+    assert "The outcome cannot be earlier than 2026-09-20, and it is likely not later than 2026-12-31." in prompt
+    assert prompt.rstrip().endswith("Percentile 90: YYYY-MM-DD")
+
+
+def test_parse_date_percentiles_reads_dates_and_times_as_utc_timestamps():
+    text = (
+        "Reasoning first.\nPercentile 10: 2026-10-01\nPercentile 20: 2026-10-05\n"
+        "Percentile 40: 2026-10-10T12:00Z\nPercentile 60: 2026-10-15\nPercentile 80: 2026-10-22\n"
+        "Percentile 90: 2026-10-30"
+    )
+    parsed = parse_date_percentiles(text)
+    assert parsed[0.1] == datetime(2026, 10, 1, tzinfo=timezone.utc).timestamp()
+    assert parsed[0.4] == datetime(2026, 10, 10, 12, tzinfo=timezone.utc).timestamp()
+    assert parse_date_percentiles(text.replace("2026-10-30", "2026-09-01")) is None
+    assert parse_date_percentiles("Percentile 10: 2026-10-01") is None

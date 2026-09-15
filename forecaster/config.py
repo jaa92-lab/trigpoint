@@ -49,13 +49,14 @@ ANALYSTS: tuple[AnalystSpec, ...] = (
     AnalystSpec(
         name="data",
         model=SECOND_MODEL,
-        evidence=("markets",),
+        evidence=("markets", "weather"),
         include_prices=True,
         include_prior=True,
         brief=(
             "You see only quantitative evidence: price data, a statistical model where one "
-            "applies, and prediction-market prices for related questions. Anchor on the numbers, "
-            "and note where a related market asks a slightly different question."
+            "applies, prediction-market prices for related questions, and weather model forecasts "
+            "for weather questions. Anchor on the numbers, and note where a related market asks a "
+            "slightly different question."
         ),
     ),
     AnalystSpec(
@@ -86,24 +87,31 @@ ANALYSTS: tuple[AnalystSpec, ...] = (
 STAGE_ONE: dict[str, tuple[str, str]] = {
     "price_threshold": ("data", "news"),
     "price_level": ("data", "news"),
-    "weather": ("sources", "news"),
+    "weather": ("data", "sources"),
     "official_count": ("sources", "news"),
     "sports": ("data", "news"),
     "event": ("news", "outside_view"),
     "generic": ("news", "outside_view"),
 }
 
+# Weather questions lead with the data analyst only when a forecast was found.
+STAGE_ONE_WITHOUT_WEATHER: tuple[str, str] = ("sources", "news")
+
 
 @dataclass(frozen=True)
 class BotConfig:
     analysts: tuple[AnalystSpec, ...] = ANALYSTS
     stage_one: dict[str, tuple[str, str]] = field(default_factory=lambda: dict(STAGE_ONE))
+    stage_one_without_weather: tuple[str, str] = STAGE_ONE_WITHOUT_WEATHER
     parser_model: str = PARSER_MODEL
     model_prices: dict[str, ModelPrice] = field(default_factory=lambda: dict(MODEL_PRICES))
 
     # Escalation from two analysts to the full panel
     escalate_on_logit_spread: float = 0.8
     full_panel_for_non_binary: bool = True
+    # When stage one agrees with fewer answers than this, each of its analysts answers
+    # again, and disagreement among the answers still escalates. 0 switches this off.
+    min_answers: int = 4
 
     # Combining
     binary_floor: float = 0.02
@@ -119,6 +127,7 @@ class BotConfig:
     use_markets: bool = True
     use_prices: bool = True
     use_sources: bool = True
+    use_weather: bool = True
     use_grounding: bool = True
     max_source_urls: int = 3
 

@@ -44,8 +44,8 @@ _PRICE_WORDS = re.compile(
 )
 _RANK_WORDS = re.compile(r"\btop[-\s]?\d+\b|\brank(?:ed|ing)?\b", re.IGNORECASE)
 _WEATHER_WORDS = re.compile(
-    r"\b(storm|storms|hurricane|hurricanes|tropical|cyclone|typhoon|rainfall|precipitation|"
-    r"temperature|temperatures|heat\s?wave|snowfall|tornado|tornadoes|earthquake|wildfire|"
+    r"\b(storm|storms|hurricane|hurricanes|tropical|cyclone|typhoon|rain|rainfall|precipitation|"
+    r"temperature|temperatures|heat\s?wave|snow|snowfall|tornado|tornadoes|earthquake|wildfire|"
     r"flood|flooding)\b",
     re.IGNORECASE,
 )
@@ -96,7 +96,7 @@ EVIDENCE_PLAN: dict[str, tuple[str, ...]] = {
     "price_threshold": ("prices", "markets", "news", "sources"),
     "price_level": ("prices", "news", "sources"),
     "sports": ("markets", "news", "sources"),
-    "weather": ("sources", "news"),
+    "weather": ("weather", "sources", "news"),
     "official_count": ("sources", "news"),
     "event": ("news", "markets", "sources"),
     "generic": ("news", "markets", "sources"),

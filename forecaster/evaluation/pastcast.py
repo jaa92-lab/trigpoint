@@ -17,6 +17,7 @@ from datetime import datetime, timedelta, timezone
 
 from forecasting_tools import (
     BinaryQuestion,
+    DateQuestion,
     MetaculusClient,
     MetaculusQuestion,
     MultipleChoiceQuestion,
@@ -24,7 +25,7 @@ from forecasting_tools import (
 )
 from forecasting_tools.data_models.questions import OutOfBoundsResolution
 
-from forecaster.bot import PanelForecaster, question_type_of
+from forecaster.bot import PanelForecaster, bounds_of, question_type_of
 from forecaster.clock import Clock
 from forecaster.config import BotConfig
 from forecaster.evaluation import scoring
@@ -37,9 +38,10 @@ DISABLE_SWITCHES = {
     "markets": "use_markets",
     "prices": "use_prices",
     "sources": "use_sources",
+    "weather": "use_weather",
     "grounding": "use_grounding",
 }
-SPECIAL_SWITCHES = ("prior", "escalation")
+SPECIAL_SWITCHES = ("prior", "escalation", "resample")
 
 
 @dataclass
@@ -67,6 +69,8 @@ def config_with_disabled(config: BotConfig, disabled: Sequence[str]) -> BotConfi
         elif name == "escalation":
             changes["escalate_on_logit_spread"] = math.inf
             changes["full_panel_for_non_binary"] = False
+        elif name == "resample":
+            changes["min_answers"] = 0
         elif name in DISABLE_SWITCHES:
             changes[DISABLE_SWITCHES[name]] = False
         else:
@@ -112,7 +116,7 @@ def reference_forecast(question: MetaculusQuestion, at: datetime | None) -> obje
     values = entry.get("forecast_values") or []
     if isinstance(question, MultipleChoiceQuestion):
         return dict(zip(question.options, values)) if len(values) == len(question.options) else None
-    if isinstance(question, NumericQuestion):
+    if isinstance(question, (NumericQuestion, DateQuestion)):
         return list(values) if len(values) == question.cdf_size else None
     return None
 
@@ -125,13 +129,17 @@ def outcome_of(question: MetaculusQuestion) -> object | None:
         if isinstance(question, MultipleChoiceQuestion):
             resolution = question.mc_resolution
             return resolution if isinstance(resolution, str) else None
-        if isinstance(question, NumericQuestion):
-            resolution = question.numeric_resolution
-            span = question.upper_bound - question.lower_bound
+        if isinstance(question, (NumericQuestion, DateQuestion)):
+            is_date = isinstance(question, DateQuestion)
+            resolution = question.date_resolution if is_date else question.numeric_resolution
+            lower, upper = bounds_of(question)
+            span = upper - lower
             if resolution == OutOfBoundsResolution.ABOVE_UPPER_BOUND:
-                return question.upper_bound + span
+                return upper + span
             if resolution == OutOfBoundsResolution.BELOW_LOWER_BOUND:
-                return question.lower_bound - span
+                return lower - span
+            if isinstance(resolution, datetime):
+                return resolution.timestamp()
             if isinstance(resolution, (int, float)) and not isinstance(resolution, bool):
                 return float(resolution)
     except Exception:
@@ -144,7 +152,7 @@ def forecast_json(question: MetaculusQuestion, prediction: object) -> object:
         return round(float(prediction), 6)
     if isinstance(question, MultipleChoiceQuestion):
         return {o.option_name: round(o.probability, 6) for o in prediction.predicted_options}
-    if isinstance(question, NumericQuestion):
+    if isinstance(question, (NumericQuestion, DateQuestion)):
         return [round(p.percentile, 6) for p in prediction.get_cdf()]
     return None
 
@@ -162,11 +170,11 @@ def score_forecast(question: MetaculusQuestion, forecast: object) -> tuple[float
         baseline = scoring.mc_baseline_score(forecast, outcome)
         relative = scoring.mc_relative_score(forecast, reference, outcome) if reference else None
         return baseline, relative
-    if isinstance(question, NumericQuestion):
+    if isinstance(question, (NumericQuestion, DateQuestion)):
         if question.zero_point is not None:
             return None, None  # log-scaled axes are not scored yet
         uniform = [i / (len(forecast) - 1) for i in range(len(forecast))]
-        lower, upper = question.lower_bound, question.upper_bound
+        lower, upper = bounds_of(question)
         baseline = scoring.numeric_relative_score(forecast, uniform, lower, upper, outcome)
         relative = scoring.numeric_relative_score(forecast, reference, lower, upper, outcome) if reference else None
         return baseline, relative

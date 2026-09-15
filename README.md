@@ -15,16 +15,20 @@ and forecasts each new question once.
      a driftless lognormal estimate based on recent volatility.
    - Related prediction markets on Manifold and Polymarket.
    - The pages named in the resolution criteria.
+   - For weather questions, a daily forecast from Open-Meteo for the place the
+     question names.
    - News from AskNews.
 3. **Independent analysts.** Each analyst sees a different slice of evidence, and
    they run on different models:
    - A news analyst on Claude Opus 5.
-   - A data analyst on GPT, which sees prices, markets, and the statistical model.
+   - A data analyst on GPT, which sees prices, markets, the statistical model, and
+     weather forecasts.
    - A resolution-source analyst on Gemini.
    - A base-rate analyst on Claude, which sees no current evidence at all.
-4. **Two stages.** The two analysts best suited to the question run first. The
-   other two join when those two disagree, one fails, a fact check flags one, or
-   the question is not yes/no.
+4. **Two stages.** The two analysts best suited to the question run first. If
+   they agree, each answers a second time, so no forecast rests on just two
+   answers. The other two analysts join when the answers disagree, one fails, a
+   fact check flags one, or the question is not yes/no.
 5. **Fact checks.** Rules with no AI judge downweight an analyst who claims to
    have searched, cites a site it was never shown, or states a price that
    contradicts the price feed.
@@ -33,6 +37,7 @@ and forecasts each new question once.
      model when one applies, and kept between 2% and 98%.
    - Multiple-choice forecasts give every option at least 1%.
    - Numeric forecasts average percentiles, with slightly widened tails.
+   - Date forecasts work the same way, with dates as the percentiles.
 
 Every step lands in the comment posted with the forecast, and prize winners must
 explain how their bot works.
@@ -53,8 +58,8 @@ Ideas carried over from two earlier projects:
   - No human in the loop.
   - One forecast per question.
   - Changes are tested only on questions that have already closed.
-- **Unsupported question types.** Date and conditional questions are refused
-  instead of guessed.
+- **Unsupported question types.** Conditional questions are refused instead of
+  guessed.
 - **Credentials.** The bot never stores credentials in the repository. Keys live
   in GitHub secrets or a local `.env` file.
 
@@ -85,8 +90,13 @@ uv run python main.py --mode dry_run --url https://www.metaculus.com/questions/1
 
 Improvements are judged by pastcasting. The bot replays resolved questions as if
 it were seeing each one ten minutes after it opened. It gets only the news,
-prices, and archived pages that existed at that moment. Prediction markets are
-skipped, because their past prices are unavailable.
+prices, and archived pages that existed at that moment. Prediction markets and
+weather forecasts are skipped, because their past values are unavailable.
+
+Fetching past questions needs Metaculus's Bot Benchmarking Access Tier. On the
+default restricted tier, the API returns closed questions without their text or
+resolution, and `fetch` says so. Request the tier through the Data Needs Form
+linked from https://www.metaculus.com/api/.
 
 ```bash
 # Save resolved questions from past rounds. Slugs are listed on the MiniBench page.
@@ -117,7 +127,7 @@ manual-only until the main bot is live.
 | `main.py` | Command-line entry point |
 | `forecaster/bot.py` | The bot class, which ties the pipeline into forecasting-tools |
 | `forecaster/triage.py` | Question classification, thresholds, date windows |
-| `forecaster/evidence/` | Price, market, source-page, and news fetchers |
+| `forecaster/evidence/` | Price, market, source-page, weather, and news fetchers |
 | `forecaster/quant.py` | Probability math for price questions |
 | `forecaster/analysts.py` | Prompts, forecast parsing, and a failure-safe runner |
 | `forecaster/grounding.py` | Rule-based fact checks |

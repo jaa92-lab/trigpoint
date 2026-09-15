@@ -1,9 +1,11 @@
 from datetime import datetime, timedelta, timezone
 
+import forecasting_tools
 import httpx
 import pytest
 from forecasting_tools import (
     BinaryQuestion,
+    DateQuestion,
     MultipleChoiceQuestion,
     NumericDistribution,
     NumericQuestion,
@@ -13,10 +15,11 @@ from forecasting_tools import (
 )
 
 from forecaster.config import ANALYSTS, BotConfig
+from forecaster.evaluation import dataset as dataset_module
 from forecaster.evaluation import pastcast as pc
 from forecaster.evaluation import scoring
 from forecaster.evaluation.cli import main as cli_main
-from forecaster.evaluation.dataset import is_scoreable, load_questions, save_questions
+from forecaster.evaluation.dataset import FetchResult, fetch_resolved, is_scoreable, load_questions, save_questions
 from forecaster.evidence.base import EvidenceItem
 
 OPEN = datetime(2026, 9, 7, 9, 0, tzinfo=timezone.utc)
@@ -204,3 +207,62 @@ def test_pastcast_command_refuses_to_spend_without_confirmation(tmp_path, capsys
     output = capsys.readouterr().out
     assert "Worst-case model spend $2.00" in output
     assert "Nothing was run" in output
+
+
+def test_resample_and_weather_switches():
+    config = pc.config_with_disabled(BotConfig(), ["resample", "weather"])
+    assert config.min_answers == 0
+    assert config.use_weather is False
+
+
+def test_date_questions_are_scored_on_a_timestamp_axis():
+    question = DateQuestion(
+        question_text="When will the report be published?",
+        id_of_question=301,
+        id_of_post=301,
+        page_url="https://www.metaculus.com/questions/301/",
+        open_time=OPEN,
+        close_time=CLOSE,
+        lower_bound=OPEN,
+        upper_bound=OPEN + timedelta(days=100),
+        open_lower_bound=False,
+        open_upper_bound=True,
+        resolution_string="2026-10-01",
+    )
+    assert pc.outcome_of(question) == datetime(2026, 10, 1, tzinfo=timezone.utc).timestamp()
+    uniform = [i / 200 for i in range(201)]
+    baseline, relative = pc.score_forecast(question, uniform)
+    assert baseline == pytest.approx(0.0, abs=1e-9)
+    assert relative is None
+
+
+async def test_fetch_counts_resolutions_the_api_withheld():
+    def binary(resolution):
+        return BinaryQuestion(
+            question_text="Will it happen?",
+            id_of_question=1,
+            id_of_post=1,
+            page_url="https://www.metaculus.com/questions/1/",
+            open_time=OPEN,
+            resolution_string=resolution,
+        )
+
+    class FakeClient:
+        async def get_questions_matching_filter(self, api_filter, num_questions, error_if_question_target_missed):
+            return [binary("yes"), binary(None)]
+
+    result = await fetch_resolved(FakeClient(), ["minibench-2026-08-24"])
+    assert (len(result.questions), result.fetched, result.hidden) == (1, 2, 1)
+
+
+def test_fetch_command_explains_withheld_resolutions(tmp_path, capsys, monkeypatch):
+    async def fake_fetch(client, tournaments, max_questions):
+        return FetchResult(questions=[], fetched=60, hidden=60)
+
+    monkeypatch.setattr(dataset_module, "fetch_resolved", fake_fetch)
+    monkeypatch.setattr(forecasting_tools, "MetaculusClient", lambda: None)
+    code = cli_main(["fetch", "--tournament", "minibench-2026-08-24", "--out", str(tmp_path / "questions.jsonl")])
+    output = capsys.readouterr().out
+    assert code == 1
+    assert "restricted API tier" in output
+    assert "Bot Benchmarking Access Tier" in output

@@ -12,6 +12,7 @@ import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from datetime import timezone
 
 from forecasting_tools import (
     BinaryPrediction,
@@ -29,6 +30,7 @@ from forecasting_tools import (
     ReasonedPrediction,
     structure_output,
 )
+from forecasting_tools.data_models.numeric_report import DatePercentile
 
 from forecaster import aggregate as agg
 from forecaster import panel
@@ -39,6 +41,7 @@ from forecaster.analysts import (
     QuestionView,
     build_prompt,
     parse_binary,
+    parse_date_percentiles,
     parse_multiple_choice,
     parse_percentiles,
     run_analyst,
@@ -52,6 +55,7 @@ from forecaster.evidence.markets import fetch_markets
 from forecaster.evidence.news import NewsSearcher
 from forecaster.evidence.prices import derive_price_prior, fetch_prices
 from forecaster.evidence.sources import fetch_sources
+from forecaster.evidence.weather import fetch_weather
 from forecaster.grounding import check_rationale
 from forecaster.triage import Triage, triage
 
@@ -59,7 +63,7 @@ logger = logging.getLogger(__name__)
 
 ClockPolicy = Callable[[MetaculusQuestion], Clock]
 ESTIMATED_ANALYST_OUTPUT_TOKENS = 3000
-SUPPORTED_TYPES = ("binary", "multiple_choice", "numeric")
+SUPPORTED_TYPES = ("binary", "multiple_choice", "numeric", "date")
 
 
 def live_clock(question: MetaculusQuestion) -> Clock:
@@ -78,6 +82,13 @@ def question_type_of(question: MetaculusQuestion) -> str:
     return "other"
 
 
+def bounds_of(question: NumericQuestion | DateQuestion) -> tuple[float, float]:
+    """Bounds on the axis the forecast uses. Date questions use timestamps, as the framework does."""
+    if isinstance(question, DateQuestion):
+        return question.lower_bound.timestamp(), question.upper_bound.timestamp()
+    return question.lower_bound, question.upper_bound
+
+
 def view_of(question: MetaculusQuestion) -> QuestionView:
     options: tuple[str, ...] = ()
     lower = upper = None
@@ -87,6 +98,10 @@ def view_of(question: MetaculusQuestion) -> QuestionView:
     if isinstance(question, NumericQuestion):
         lower = question.nominal_lower_bound if question.nominal_lower_bound is not None else question.lower_bound
         upper = question.nominal_upper_bound if question.nominal_upper_bound is not None else question.upper_bound
+        open_lower = question.open_lower_bound
+        open_upper = question.open_upper_bound
+    elif isinstance(question, DateQuestion):
+        lower, upper = bounds_of(question)
         open_lower = question.open_lower_bound
         open_upper = question.open_upper_bound
     return QuestionView(
@@ -125,6 +140,8 @@ def research_digest(case: CaseFile) -> str:
         f"- {len(bundle.by_source('markets'))} related prediction markets",
         f"- {len(bundle.by_source('sources'))} resolution source pages",
     ]
+    if "weather" in case.triage.evidence_plan:
+        lines.append(f"- {len(bundle.by_source('weather'))} weather forecasts")
     lines += [f"- Price data for {p.symbol} from {p.provider}" for p in bundle.prices]
     if bundle.prior and bundle.prior.explanation:
         lines.append(f"- Statistical model: {bundle.prior.explanation}")
@@ -237,6 +254,10 @@ class PanelForecaster(ForecastBot):
                 jobs["markets"] = fetch_markets(client, case.view.title, case.clock)
             if self.config.use_sources and "sources" in plan and case.triage.urls:
                 jobs["sources"] = fetch_sources(client, case.triage.urls, case.clock, self.config.max_source_urls)
+            if self.config.use_weather and "weather" in plan:
+                jobs["weather"] = fetch_weather(
+                    client, case.view.title, case.view.resolution_criteria, case.triage, case.clock
+                )
             if self.config.use_news and "news" in plan:
                 if self._news.available:
                     jobs["news"] = self._news.search(case.view.title, case.clock)
@@ -278,28 +299,52 @@ class PanelForecaster(ForecastBot):
             raise RuntimeError("Research did not run for this question")
         return case
 
+    def _stage_one_names(self, case: CaseFile) -> tuple[str, ...]:
+        if case.triage.kind == "weather" and not case.bundle.by_source("weather"):
+            return self.config.stage_one_without_weather
+        return self.config.stage_one.get(case.triage.kind, ("news", "outside_view"))
+
     async def _run_panel(
         self,
         case: CaseFile,
         parse: Callable[[str], object | None],
         fallback: Callable[[str], Awaitable[object | None]] | None,
     ) -> tuple[list[AnalystResult], str]:
-        first_names = self.config.stage_one.get(case.triage.kind, ("news", "outside_view"))
+        first_names = self._stage_one_names(case)
         first = [self.config.analyst(name) for name in first_names]
         rest = [spec for spec in self.config.analysts if spec.name not in first_names]
+        question_type = case.view.question_type
 
         if case.budget.remaining() < self.config.fast_path_below_seconds:
             results = await self._run_stage(case, first[:1], parse, fallback, share=0.9)
             return results, "Fast path: little time remained before close, so one analyst forecast."
 
         results = await self._run_stage(case, first, parse, fallback, share=0.5)
-        if not rest or not panel.should_escalate(results, case.view.question_type, self.config):
+        if rest and panel.should_escalate(results, question_type, self.config):
+            return await self._escalate(case, results, rest, parse, fallback, "")
+
+        # Two agreeing answers can agree by chance, so ask each analyst again.
+        if len(panel.successful(results)) >= self.config.min_answers or case.budget.remaining() < 60.0:
             return results, "Stage one only: the first two analysts agreed closely."
+        results += await self._run_stage(case, first, parse, fallback, share=0.5, answer=2)
+        if rest and panel.should_escalate(results, question_type, self.config):
+            return await self._escalate(case, results, rest, parse, fallback, " (after a second answer from each)")
+        return results, "Stage one, asked twice: the first two analysts agreed closely, and so did their second answers."
+
+    async def _escalate(
+        self,
+        case: CaseFile,
+        results: list[AnalystResult],
+        rest: list[AnalystSpec],
+        parse: Callable[[str], object | None],
+        fallback: Callable[[str], Awaitable[object | None]] | None,
+        when: str,
+    ) -> tuple[list[AnalystResult], str]:
         if case.budget.remaining() < 60.0:
             return results, "Stage one only: no time was left to escalate."
         reason = panel.escalation_reason(results, case.view.question_type, self.config)
-        results += await self._run_stage(case, rest, parse, fallback, share=0.9)
-        return results, f"Full panel: escalated because {reason}."
+        results = results + await self._run_stage(case, rest, parse, fallback, share=0.9)
+        return results, f"Full panel: escalated because {reason}{when}."
 
     async def _run_stage(
         self,
@@ -308,6 +353,7 @@ class PanelForecaster(ForecastBot):
         parse: Callable[[str], object | None],
         fallback: Callable[[str], Awaitable[object | None]] | None,
         share: float,
+        answer: int = 1,
     ) -> list[AnalystResult]:
         timeout = case.budget.slice(share, minimum=30.0, maximum=600.0)
         skipped: list[AnalystResult] = []
@@ -326,7 +372,11 @@ class PanelForecaster(ForecastBot):
         )
         for (spec, _), result in zip(runnable, outcomes):
             self._fact_check(case, spec, result)
-        return list(outcomes) + skipped
+        results = list(outcomes) + skipped
+        if answer > 1:
+            for result in results:
+                result.name = f"{result.name}, answer {answer}"
+        return results
 
     def _fact_check(self, case: CaseFile, spec: AnalystSpec, result: AnalystResult) -> None:
         if not self.config.use_grounding or not result.ok:
@@ -418,18 +468,31 @@ class PanelForecaster(ForecastBot):
             anchor = f"The statistical model's quantiles were blended in with a {self.config.data_prior_weight:.0%} share."
         return ReasonedPrediction(prediction_value=distribution, reasoning=self._report(case, results, stage, text, anchor))
 
-    async def _run_forecast_on_date(self, question: DateQuestion, research: str) -> ReasonedPrediction:
-        raise NotImplementedError("Date questions are not supported")
+    async def _run_forecast_on_date(
+        self, question: DateQuestion, research: str
+    ) -> ReasonedPrediction[NumericDistribution]:
+        case = await self._case(question)
+        results, stage = await self._run_panel(case, parse_date_percentiles, self._fallback_date)
+        lower, upper = bounds_of(question)
+        quantiles = panel.combine_numeric(
+            results, None, self.config, lower, upper, question.open_lower_bound, question.open_upper_bound
+        )
+        distribution = self._distribution(quantiles, question)
+        text = panel.format_value(quantiles, "date")
+        return ReasonedPrediction(prediction_value=distribution, reasoning=self._report(case, results, stage, text, None))
 
     @staticmethod
-    def _distribution(quantiles: dict[float, float], question: NumericQuestion) -> NumericDistribution:
+    def _distribution(
+        quantiles: dict[float, float], question: NumericQuestion | DateQuestion
+    ) -> NumericDistribution:
         percentiles = [Percentile(percentile=level, value=value) for level, value in sorted(quantiles.items())]
         try:
             return NumericDistribution.from_question(percentiles, question)
         except ValueError:
-            span = question.upper_bound - question.lower_bound
-            lo = question.lower_bound + span * 1e-3
-            hi = question.upper_bound - span * 1e-3
+            lower, upper = bounds_of(question)
+            span = upper - lower
+            lo = lower + span * 1e-3
+            hi = upper - span * 1e-3
             inside = agg.enforce_increasing({level: min(max(v, lo), hi) for level, v in quantiles.items()})
             return NumericDistribution.from_question(
                 [Percentile(percentile=level, value=value) for level, value in sorted(inside.items())], question
@@ -454,6 +517,17 @@ class PanelForecaster(ForecastBot):
     async def _fallback_numeric(self, text: str) -> dict[float, float] | None:
         parsed = await structure_output(text, list[Percentile], model=self._llm(self.config.parser_model, 120))
         found = {round(p.percentile, 2): p.value for p in parsed}
+        wanted = [label / 100 for label in PERCENTILE_LABELS]
+        if not all(level in found for level in wanted):
+            return None
+        return {level: found[level] for level in wanted}
+
+    async def _fallback_date(self, text: str) -> dict[float, float] | None:
+        parsed = await structure_output(text, list[DatePercentile], model=self._llm(self.config.parser_model, 120))
+        found = {}
+        for p in parsed:
+            moment = p.value if p.value.tzinfo else p.value.replace(tzinfo=timezone.utc)
+            found[round(p.percentile, 2)] = moment.timestamp()
         wanted = [label / 100 for label in PERCENTILE_LABELS]
         if not all(level in found for level in wanted):
             return None
