@@ -35,7 +35,8 @@ and forecasts each new question once.
 
    Every analyst works through the same short checklist: restate the rule, the
    status quo, anything scheduled inside the window, how strong each piece of
-   evidence is, an "out of 100" sanity check, and a window check.
+   evidence is, the strongest case against its own answer, an "out of 100"
+   sanity check, and a window check.
 4. **Two stages.** The two analysts best suited to the question run first. If
    they agree, each answers a second time, so no forecast rests on just two
    answers. The other two analysts join when the answers disagree, one fails, a
