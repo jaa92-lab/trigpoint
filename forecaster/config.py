@@ -12,14 +12,16 @@ from forecaster.budget import ModelPrice
 
 LEAD_MODEL = "openrouter/anthropic/claude-opus-5"
 SECOND_MODEL = "openrouter/openai/gpt-5.6-sol"
-THIRD_MODEL = "openrouter/google/gemini-3.6-flash"
+# Not Gemini: on Metaculus's shared key it runs on a free-tier Google project capped at
+# 20 requests a day per model, and 5 of 10 test forecasts on 2026-09-18 hit that cap.
+THIRD_MODEL = "openrouter/openai/gpt-5.6-terra"
 PARSER_MODEL = "openrouter/openai/gpt-5.6-luna"
 
-# Dollars per million tokens, from OpenRouter's model list on 2026-09-14.
+# Dollars per million tokens, from OpenRouter's model list (checked 2026-09-18).
 MODEL_PRICES: dict[str, ModelPrice] = {
     LEAD_MODEL: ModelPrice(5.00, 25.00),
     SECOND_MODEL: ModelPrice(2.00, 10.00),
-    THIRD_MODEL: ModelPrice(0.75, 3.75),
+    THIRD_MODEL: ModelPrice(2.00, 12.00),
     PARSER_MODEL: ModelPrice(0.20, 1.20),
 }
 
@@ -132,7 +134,11 @@ class BotConfig:
     max_source_urls: int = 3
 
     # Budgets
-    max_cost_per_question: float = 1.00
+    max_cost_per_question: float = 0.60
+    # Whole-key limits, checked before each run (see credits.py): below the reserve
+    # only MiniBench runs, and below the floor nothing does.
+    credit_floor: float = 3.0
+    minibench_reserve: float = 25.0
     max_seconds_per_question: float = 1500.0
     safety_margin_seconds: float = 300.0
     skip_if_closing_within_seconds: float = 180.0

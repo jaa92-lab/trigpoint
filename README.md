@@ -23,7 +23,8 @@ and forecasts each new question once.
    - A news analyst on Claude Opus 5.
    - A data analyst on GPT, which sees prices, markets, the statistical model, and
      weather forecasts.
-   - A resolution-source analyst on Gemini.
+   - A resolution-source analyst on GPT-5.6 Terra. Gemini was dropped because
+     Metaculus's shared key caps it at 20 requests a day.
    - A base-rate analyst on Claude, which sees no current evidence at all.
 4. **Two stages.** The two analysts best suited to the question run first. If
    they agree, each answers a second time, so no forecast rests on just two
@@ -52,8 +53,11 @@ Ideas carried over from two earlier projects:
 - **Time.** Questions stay open about 90 minutes. The bot budgets up to 25 minutes
   per question and stops 5 minutes before close. It skips any question closing
   within 3 minutes, and switches to a single analyst when time is short.
-- **Money.** Each question has a cost cap, $1.00 by default. Analysts that would
-  break it are skipped.
+- **Money.** Each question has a cost cap, $0.60 by default. Analysts that would
+  break it are skipped. Before each run the bot also reads the OpenRouter key's
+  remaining credit. MiniBench always runs first. Below $25 the seasonal
+  tournament pauses, and below $3 nothing runs. Each run logs what it actually
+  spent.
 - **Tournament rules.**
   - No human in the loop.
   - One forecast per question.

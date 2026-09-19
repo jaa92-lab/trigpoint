@@ -2,9 +2,9 @@ name: Forecast on new tournament questions
 
 on:
   workflow_dispatch:
-  # Off until the bot has been proven on the bot-testing area. To go live, uncomment:
-  # schedule:
-  #   - cron: "7,27,47 * * * *" # every 20 minutes, off the hour; already-forecast questions are skipped
+  # Live since 2026-09-18, after a clean run on the bot-testing area.
+  schedule:
+    - cron: "7,27,47 * * * *" # every 20 minutes, off the hour; already-forecast questions are skipped
 
 # Never run two forecasting jobs at once: each question accepts exactly one forecast.
 concurrency:

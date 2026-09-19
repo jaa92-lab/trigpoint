@@ -10,7 +10,8 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-USER_AGENT = "Mozilla/5.0 (compatible; forecaster-bot/0.1)"
+# Wikipedia refuses generic bot agents; its policy asks for a name and a contact URL.
+USER_AGENT = "TrigpointBot/0.1 (+https://github.com/jaa92-lab/trigpoint)"
 
 
 def make_client(timeout: float = 20.0) -> httpx.AsyncClient:

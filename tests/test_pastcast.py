@@ -205,7 +205,7 @@ def test_pastcast_command_refuses_to_spend_without_confirmation(tmp_path, capsys
     save_questions([resolved_binary()], path)
     assert cli_main(["pastcast", "--data", str(path), "--runs", "2"]) == 0
     output = capsys.readouterr().out
-    assert "Worst-case model spend $2.00" in output
+    assert "Worst-case model spend $1.20" in output
     assert "Nothing was run" in output
 
 
