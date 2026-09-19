@@ -6,6 +6,10 @@
     uv run python -m forecaster.evaluation.cli pastcast --data data/holdout.jsonl --limit 40
         Print the worst-case spend and stop. Add --confirm-spend to run the models.
         Add --runs 3 to measure the noise floor, or --disable markets,grounding to test a change.
+
+    uv run python -m forecaster.evaluation.cli scorecard [--tournament minibench]
+        Score the bot's own resolved forecasts and save reports/scorecard-<date>.md. Needs METACULUS_TOKEN
+        and no model credit.
 """
 
 from __future__ import annotations
@@ -38,6 +42,11 @@ def build_parser() -> argparse.ArgumentParser:
     past.add_argument("--cache-dir", default="data/cache")
     past.add_argument("--out-dir", default=None)
     past.add_argument("--confirm-spend", action="store_true", help="Actually call the models")
+
+    card = commands.add_parser("scorecard", help="Score the bot's own resolved forecasts")
+    card.add_argument("--tournament", action="append", default=[], help="Limit to a tournament slug or ID (repeatable)")
+    card.add_argument("--out-dir", default="reports")
+    card.add_argument("--pause-seconds", type=float, default=2.0, help="Pause between Metaculus requests")
     return parser
 
 
@@ -88,13 +97,41 @@ async def pastcast_command(args: argparse.Namespace) -> int:
     return 0
 
 
+async def scorecard_command(args: argparse.Namespace) -> int:
+    import os
+
+    import httpx
+
+    from forecaster.evaluation import scorecard
+    from forecaster.evidence.http import USER_AGENT
+
+    token = os.getenv("METACULUS_TOKEN", "").strip()
+    if not token:
+        print("METACULUS_TOKEN is not set.")
+        return 1
+    headers = {"Authorization": f"Token {token}", "User-Agent": USER_AGENT}
+    async with httpx.AsyncClient(headers=headers, timeout=60, follow_redirects=True) as client:
+        records = await scorecard.build_scorecard(client, args.tournament, pause_seconds=args.pause_seconds)
+    report = scorecard.render_scorecard(records)
+    out_dir = Path(args.out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    stamp = f"{datetime.now(timezone.utc):%Y%m%d-%H%M%S}"
+    (out_dir / f"scorecard-{stamp}.md").write_text(report, encoding="utf-8")
+    with (out_dir / f"scorecard-{stamp}.jsonl").open("w", encoding="utf-8") as handle:
+        for record in records:
+            handle.write(json.dumps(record.to_json(), ensure_ascii=False) + "\n")
+    print(report)
+    print(f"Saved to {out_dir / f'scorecard-{stamp}.md'}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     dotenv.load_dotenv()
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(encoding="utf-8", errors="replace")
     args = build_parser().parse_args(argv)
-    command = fetch_command if args.command == "fetch" else pastcast_command
+    command = {"fetch": fetch_command, "pastcast": pastcast_command, "scorecard": scorecard_command}[args.command]
     return asyncio.run(command(args))
 
 

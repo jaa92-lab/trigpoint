@@ -35,6 +35,7 @@ from forecasting_tools.data_models.numeric_report import DatePercentile
 from forecaster import aggregate as agg
 from forecaster import panel
 from forecaster.analysts import (
+    ESTIMATED_OUTPUT_TOKENS,
     PERCENTILE_LABELS,
     AnalystResult,
     LlmCall,
@@ -62,7 +63,6 @@ from forecaster.triage import Triage, triage
 logger = logging.getLogger(__name__)
 
 ClockPolicy = Callable[[MetaculusQuestion], Clock]
-ESTIMATED_ANALYST_OUTPUT_TOKENS = 3000
 SUPPORTED_TYPES = ("binary", "multiple_choice", "numeric", "date")
 
 
@@ -361,14 +361,20 @@ class PanelForecaster(ForecastBot):
         for spec in specs:
             evidence = case.bundle.render(spec.evidence, spec.include_prices, spec.include_prior)
             prompt = build_prompt(spec, case.view, evidence, case.clock.now())
-            if not case.ledger.can_afford(spec.model, estimate_tokens(prompt), ESTIMATED_ANALYST_OUTPUT_TOKENS):
+            if not case.ledger.can_afford(spec.model, estimate_tokens(prompt), ESTIMATED_OUTPUT_TOKENS):
                 skipped.append(
                     AnalystResult(spec.name, spec.model, None, "", error="skipped to stay under the per-question cost cap")
                 )
                 continue
             runnable.append((spec, prompt))
         outcomes = await asyncio.gather(
-            *(run_analyst(spec, prompt, self._llm_call, parse, timeout, case.ledger, fallback) for spec, prompt in runnable)
+            *(
+                run_analyst(
+                    spec, prompt, self._llm_call, parse, timeout, case.ledger, fallback,
+                    fallback_model=self.config.fallback_models.get(spec.model),
+                )
+                for spec, prompt in runnable
+            )
         )
         for (spec, _), result in zip(runnable, outcomes):
             self._fact_check(case, spec, result)

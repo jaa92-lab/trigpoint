@@ -60,6 +60,10 @@ Ideas carried over from two earlier projects:
   remaining credit. MiniBench always runs first. Below $25 the seasonal
   tournament pauses, and below $3 nothing runs. Each run logs what it actually
   spent.
+- **Outages.** A missed question scores zero, so when an analyst's model fails
+  (a rate limit, an outage, a bad response) a stand-in model answers instead:
+  Claude Sonnet 5 for Opus, and the two GPT analysts cover each other. The
+  forecast comment says when a stand-in answered.
 - **Tournament rules.**
   - No human in the loop.
   - One forecast per question.
@@ -117,6 +121,22 @@ uv run python -m forecaster.evaluation.cli pastcast --limit 40 --disable groundi
 
 Run the same configuration three times first. The spread between those identical
 runs is the noise floor, and a change only counts if it beats that spread.
+
+## Scoring the bot's own forecasts
+
+The restricted API tier still returns the resolution of every question this
+account forecast on, and Metaculus's own score once it exists. After each
+MiniBench round, this scores what the bot did, with no model credit:
+
+```bash
+uv run python -m forecaster.evaluation.cli scorecard --tournament minibench
+```
+
+It writes `reports/scorecard-<date>.md` with the mean score by question kind,
+a calibration table for yes/no forecasts (do the bot's 70%s come true about 70%
+of the time?), how often numeric outcomes fell inside the bot's 10th-90th
+percentile range (about 80% is right), and the ten worst misses. Change one
+thing per round and compare the scorecards.
 
 ## Comparison bot
 

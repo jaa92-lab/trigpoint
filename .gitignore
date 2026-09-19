@@ -11,3 +11,6 @@ logs/
 
 # Local handoff notes: personal context, not for the public repo
 HANDOFF.md
+
+# Generated scorecards from the bot's own resolved forecasts
+reports/

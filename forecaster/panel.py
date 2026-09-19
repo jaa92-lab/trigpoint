@@ -154,6 +154,8 @@ def render_panel_report(
             header += f": no forecast ({r.error})"
         lines.append(header)
         lines += [f"- Flag: {flag}" for flag in r.flags]
+        if r.note:
+            lines.append(f"- Note: {r.note}")
         if r.rationale:
             lines.append(_trim(r.rationale))
         lines.append("")

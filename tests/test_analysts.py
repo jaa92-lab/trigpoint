@@ -150,3 +150,47 @@ def test_parse_date_percentiles_reads_dates_and_times_as_utc_timestamps():
     assert parsed[0.4] == datetime(2026, 10, 10, 12, tzinfo=timezone.utc).timestamp()
     assert parse_date_percentiles(text.replace("2026-10-30", "2026-09-01")) is None
     assert parse_date_percentiles("Percentile 10: 2026-10-01") is None
+
+
+async def test_run_analyst_falls_back_to_a_stand_in_model_on_failure():
+    calls = []
+
+    async def call(model, prompt):
+        calls.append(model)
+        if model == SPEC.model:
+            raise RuntimeError("rate limited")
+        return "Probability: 40%"
+
+    ledger = CostLedger(cap=1.0, prices={SPEC.model: ModelPrice(5.0, 25.0), "openrouter/x/stand-in": ModelPrice(1.0, 5.0)})
+    result = await run_analyst(SPEC, "p", call, parse_binary, timeout=5, ledger=ledger, fallback_model="openrouter/x/stand-in")
+    assert result.ok and result.value == pytest.approx(0.4)
+    assert result.model == "openrouter/x/stand-in"
+    assert "rate limited" in result.note and "stand-in answered instead" in result.note
+    assert calls == [SPEC.model, "openrouter/x/stand-in"]
+    assert ledger.entries[0][1] == "openrouter/x/stand-in"
+
+
+async def test_no_stand_in_after_a_timeout_or_when_it_is_unaffordable():
+    calls = []
+
+    async def slow(model, prompt):
+        calls.append(model)
+        await asyncio.sleep(1)
+        return "Probability: 50%"
+
+    result = await run_analyst(SPEC, "p", slow, parse_binary, timeout=0.05, fallback_model="openrouter/x/stand-in")
+    assert not result.ok and calls == [SPEC.model]
+
+    async def broken(model, prompt):
+        calls.append(model)
+        raise RuntimeError("down")
+
+    calls.clear()
+    result = await run_analyst(
+        SPEC, "p", broken, parse_binary, timeout=5, ledger=CostLedger(cap=0.0, prices={}), fallback_model="openrouter/x/stand-in"
+    )
+    assert not result.ok and "down" in result.error and calls == [SPEC.model]
+
+    calls.clear()
+    result = await run_analyst(SPEC, "p", broken, parse_binary, timeout=5, fallback_model="openrouter/x/stand-in")
+    assert not result.ok and "stand-in also failed" in result.error and calls == [SPEC.model, "openrouter/x/stand-in"]

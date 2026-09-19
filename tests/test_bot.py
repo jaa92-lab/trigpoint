@@ -51,11 +51,13 @@ class ScriptedModels:
     def __init__(self, answers) -> None:
         self.answers = answers
         self.calls = []
+        self.models = []
         self.prompts = {}
 
     async def __call__(self, model, prompt):
         name = next(spec.name for spec in ANALYSTS if spec.brief in prompt)
         self.calls.append(name)
+        self.models.append(model)
         self.prompts[name] = prompt
         answer = self.answers[name]
         if isinstance(answer, list):
@@ -299,3 +301,13 @@ async def test_weather_questions_without_a_forecast_lead_with_sources_and_news()
     report = await make_bot(models).forecast_question(denver_heat_question())
     assert sorted(models.calls) == ["news", "news", "sources", "sources"]
     assert "weather geocoder" in report.explanation
+
+
+async def test_a_failed_model_is_replaced_by_its_stand_in():
+    models = ScriptedModels(
+        {"news": [RuntimeError("provider outage"), "Probability: 30%"], "outside_view": "Probability: 32%"}
+    )
+    report = await make_bot(models).forecast_question(event_question())
+    assert "openrouter/anthropic/claude-sonnet-5" in models.models
+    assert "claude-opus-5 failed (provider outage), so claude-sonnet-5 answered instead" in report.explanation
+    assert 0.30 <= report.prediction <= 0.32

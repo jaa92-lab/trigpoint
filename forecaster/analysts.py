@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+import time
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -19,6 +20,8 @@ from forecaster.config import AnalystSpec
 
 PERCENTILE_LABELS = (10, 20, 40, 60, 80, 90)
 REASONING_OUTPUT_MULTIPLIER = 3.0
+ESTIMATED_OUTPUT_TOKENS = 3000  # for affordability checks before a call
+MIN_FALLBACK_SECONDS = 20.0
 
 PANEL_PREAMBLE = (
     "You are one member of a forecasting panel. Each panelist sees a different slice of "
@@ -66,6 +69,7 @@ class AnalystResult:
     weight: float = 1.0
     flags: list[str] = field(default_factory=list)
     error: str | None = None
+    note: str | None = None  # e.g. a stand-in model answered; never affects weight or escalation
 
     @property
     def ok(self) -> bool:
@@ -252,6 +256,14 @@ def parse_date_percentiles(text: str) -> dict[float, float] | None:
 # ------------------------------------------------------------- runner
 
 
+def _short(model: str) -> str:
+    return model.split("/")[-1]
+
+
+def _affordable(ledger: CostLedger | None, model: str, prompt: str) -> bool:
+    return ledger is None or ledger.can_afford(model, estimate_tokens(prompt), ESTIMATED_OUTPUT_TOKENS)
+
+
 async def run_analyst(
     spec: AnalystSpec,
     prompt: str,
@@ -260,24 +272,42 @@ async def run_analyst(
     timeout: float,
     ledger: CostLedger | None = None,
     fallback: FallbackParse | None = None,
+    fallback_model: str | None = None,
 ) -> AnalystResult:
+    """One analyst answer. A failed call is retried once on the stand-in model, if there is one;
+    a timeout is not, because the time is gone."""
+    started = time.monotonic()
+    model = spec.model
+    note = None
     try:
         text = await asyncio.wait_for(call(spec.model, prompt), timeout=timeout)
     except asyncio.TimeoutError:
         return AnalystResult(spec.name, spec.model, None, "", error=f"timed out after {timeout:.0f}s")
     except Exception as error:
-        return AnalystResult(spec.name, spec.model, None, "", error=f"model call failed: {error}")
+        if fallback_model is None or not _affordable(ledger, fallback_model, prompt):
+            return AnalystResult(spec.name, spec.model, None, "", error=f"model call failed: {error}")
+        remaining = max(MIN_FALLBACK_SECONDS, timeout - (time.monotonic() - started))
+        try:
+            text = await asyncio.wait_for(call(fallback_model, prompt), timeout=remaining)
+        except Exception as second:
+            detail = str(second) or type(second).__name__
+            return AnalystResult(
+                spec.name, spec.model, None, "",
+                error=f"model call failed: {error}; {_short(fallback_model)} also failed: {detail}",
+            )
+        model = fallback_model
+        note = f"{_short(spec.model)} failed ({error}), so {_short(fallback_model)} answered instead"
 
     if ledger is not None:
         output_tokens = int(estimate_tokens(text) * REASONING_OUTPUT_MULTIPLIER)
-        ledger.record(spec.name, spec.model, estimate_tokens(prompt), output_tokens)
+        ledger.record(spec.name, model, estimate_tokens(prompt), output_tokens)
 
     value = parse(text)
     if value is None and fallback is not None:
         try:
             value = await fallback(text)
         except Exception as error:
-            return AnalystResult(spec.name, spec.model, None, text, error=f"could not parse forecast: {error}")
+            return AnalystResult(spec.name, model, None, text, error=f"could not parse forecast: {error}", note=note)
     if value is None:
-        return AnalystResult(spec.name, spec.model, None, text, error="could not parse forecast")
-    return AnalystResult(spec.name, spec.model, value, text)
+        return AnalystResult(spec.name, model, None, text, error="could not parse forecast", note=note)
+    return AnalystResult(spec.name, model, value, text, note=note)

@@ -17,12 +17,22 @@ SECOND_MODEL = "openrouter/openai/gpt-5.6-sol"
 THIRD_MODEL = "openrouter/openai/gpt-5.6-terra"
 PARSER_MODEL = "openrouter/openai/gpt-5.6-luna"
 
+# Stand-ins when an analyst's model fails (rate limit, outage, bad response), so one bad
+# provider minute doesn't cost a question. If a whole provider is down, the stand-in
+# fails too and the panel escalates to the other analysts as usual.
+FALLBACK_MODELS: dict[str, str] = {
+    LEAD_MODEL: "openrouter/anthropic/claude-sonnet-5",
+    SECOND_MODEL: THIRD_MODEL,
+    THIRD_MODEL: SECOND_MODEL,
+}
+
 # Dollars per million tokens, from OpenRouter's model list (checked 2026-09-18).
 MODEL_PRICES: dict[str, ModelPrice] = {
     LEAD_MODEL: ModelPrice(5.00, 25.00),
     SECOND_MODEL: ModelPrice(2.00, 10.00),
     THIRD_MODEL: ModelPrice(2.00, 12.00),
     PARSER_MODEL: ModelPrice(0.20, 1.20),
+    "openrouter/anthropic/claude-sonnet-5": ModelPrice(2.00, 10.00),
 }
 
 
@@ -107,6 +117,7 @@ class BotConfig:
     stage_one_without_weather: tuple[str, str] = STAGE_ONE_WITHOUT_WEATHER
     parser_model: str = PARSER_MODEL
     model_prices: dict[str, ModelPrice] = field(default_factory=lambda: dict(MODEL_PRICES))
+    fallback_models: dict[str, str] = field(default_factory=lambda: dict(FALLBACK_MODELS))
 
     # Escalation from two analysts to the full panel
     escalate_on_logit_spread: float = 0.8
