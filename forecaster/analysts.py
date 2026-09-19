@@ -162,6 +162,8 @@ def reasoning_steps(question: QuestionView) -> str:
         "or deadline) that could move the outcome? Say when.",
         "Evidence: what in your evidence moves you away from the status quo, how far, and is each piece "
         "strong, moderate, or weak?",
+        "Case against: what is the strongest case for a different outcome? Describe the scenario that would "
+        "make your forecast look silly in hindsight, and how likely it is.",
     ]
     if question.question_type == "binary":
         steps += [

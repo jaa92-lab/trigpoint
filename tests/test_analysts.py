@@ -198,10 +198,21 @@ async def test_no_stand_in_after_a_timeout_or_when_it_is_unaffordable():
 
 def test_prompts_carry_the_forecasting_checklist():
     binary_prompt = build_prompt(SPEC, storm_question(), "none", NOW)
-    for phrase in ("Restate in one line", "Scheduled events", "strong, moderate, or weak", "out of 100", "half as long"):
+    for phrase in (
+        "Restate in one line",
+        "Status quo",
+        "Scheduled events",
+        "strong, moderate, or weak",
+        "look silly in hindsight",
+        "out of 100",
+        "half as long",
+    ):
         assert phrase in binary_prompt
     assert binary_prompt.rstrip().endswith("Probability: NN%")
     numeric = QuestionView(title="How many points?", question_type="numeric", lower_bound=0, upper_bound=100)
     numeric_prompt = build_prompt(SPEC, numeric, "none", NOW)
     assert "1 in 5 outcomes" in numeric_prompt
+    assert "look silly in hindsight" in numeric_prompt
     assert "out of 100" not in numeric_prompt
+    choice = QuestionView(title="Who wins?", question_type="multiple_choice", options=("Alice", "Bob"))
+    assert "look silly in hindsight" in build_prompt(SPEC, choice, "none", NOW)
