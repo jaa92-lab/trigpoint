@@ -139,8 +139,13 @@ async def run(args: argparse.Namespace) -> int:
 
 
 def main() -> None:
+    from forecaster.env import clean_secret_env
+
     dotenv.load_dotenv()
     configure_output()
+    cleaned = clean_secret_env()
+    if cleaned:
+        logging.warning(f"Stripped stray whitespace from {', '.join(cleaned)}. Re-save those secrets to fix them at the source.")
     sys.exit(asyncio.run(run(build_parser().parse_args())))
 
 
