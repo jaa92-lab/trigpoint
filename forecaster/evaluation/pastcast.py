@@ -41,7 +41,7 @@ DISABLE_SWITCHES = {
     "weather": "use_weather",
     "grounding": "use_grounding",
 }
-SPECIAL_SWITCHES = ("prior", "escalation", "resample")
+SPECIAL_SWITCHES = ("prior", "escalation", "resample", "news_queries")
 
 
 @dataclass
@@ -71,6 +71,8 @@ def config_with_disabled(config: BotConfig, disabled: Sequence[str]) -> BotConfi
             changes["full_panel_for_non_binary"] = False
         elif name == "resample":
             changes["min_answers"] = 0
+        elif name == "news_queries":
+            changes["extra_news_queries"] = 0
         elif name in DISABLE_SWITCHES:
             changes[DISABLE_SWITCHES[name]] = False
         else:

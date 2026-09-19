@@ -152,6 +152,34 @@ def answer_format(question: QuestionView) -> str:
     ).strip()
 
 
+def reasoning_steps(question: QuestionView) -> str:
+    """A short checklist every analyst works through, drawn from top public bots' prompts
+    (Panshul42's Q2 2025 winner and joy-void-joy's scheduled-catalyst rule)."""
+    steps = [
+        "Restate in one line exactly what the question requires or measures, by when, and according to which source.",
+        "Status quo: what is the outcome if nothing changes before resolution?",
+        "Scheduled events: is anything scheduled inside the window (a meeting, report, release, vote, game, "
+        "or deadline) that could move the outcome? Say when.",
+        "Evidence: what in your evidence moves you away from the status quo, how far, and is each piece "
+        "strong, moderate, or weak?",
+    ]
+    if question.question_type == "binary":
+        steps += [
+            "Sanity check: out of 100 questions like this one, how many would resolve Yes? "
+            "Your forecast should match that number, or you should say why it differs.",
+            "Window check: would your forecast change if the window were half as long, or twice as long? "
+            "If it would not change at all, you may be ignoring timing.",
+        ]
+    elif question.question_type == "multiple_choice":
+        steps.append("Sanity check: in situations like this, how often does the option you rate highest actually win?")
+    else:
+        steps.append(
+            "Sanity check: about 1 in 5 outcomes should land outside your 10th to 90th percentile range. "
+            "Name a plausible outcome just outside it, and check the range is neither too narrow nor too wide."
+        )
+    return "Work through these briefly, in order:\n" + "\n".join(f"{i}. {step}" for i, step in enumerate(steps, 1))
+
+
 def build_prompt(spec: AnalystSpec, question: QuestionView, evidence_text: str, now: datetime) -> str:
     sections: list[str] = [PANEL_PREAMBLE, "", f"Your role: {spec.brief}", "", "# Question", question.title]
     if question.question_type == "multiple_choice":
@@ -170,9 +198,8 @@ def build_prompt(spec: AnalystSpec, question: QuestionView, evidence_text: str, 
         evidence_text,
         "",
         "# How to answer",
-        "Briefly work through: (a) the status quo outcome if nothing changes before resolution; "
-        "(b) the strongest case for the other outcome; (c) what in your evidence moves you, and how far.",
-        "Keep the rationale under 250 words. You have no tools and cannot search, so never say that "
+        reasoning_steps(question),
+        "Keep the rationale under 300 words. You have no tools and cannot search, so never say that "
         "you searched or checked anything.",
         "",
         answer_format(question),

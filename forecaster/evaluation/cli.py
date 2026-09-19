@@ -37,7 +37,7 @@ def build_parser() -> argparse.ArgumentParser:
     past.add_argument("--data", default="data/holdout.jsonl")
     past.add_argument("--limit", type=int, default=40)
     past.add_argument("--runs", type=int, default=1)
-    past.add_argument("--disable", default="", help="Comma list: news, markets, prices, sources, weather, grounding, prior, escalation, resample")
+    past.add_argument("--disable", default="", help="Comma list: news, markets, prices, sources, weather, grounding, prior, escalation, resample, news_queries")
     past.add_argument("--delay-minutes", type=float, default=10.0)
     past.add_argument("--cache-dir", default="data/cache")
     past.add_argument("--out-dir", default=None)

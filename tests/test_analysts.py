@@ -194,3 +194,14 @@ async def test_no_stand_in_after_a_timeout_or_when_it_is_unaffordable():
     calls.clear()
     result = await run_analyst(SPEC, "p", broken, parse_binary, timeout=5, fallback_model="openrouter/x/stand-in")
     assert not result.ok and "stand-in also failed" in result.error and calls == [SPEC.model, "openrouter/x/stand-in"]
+
+
+def test_prompts_carry_the_forecasting_checklist():
+    binary_prompt = build_prompt(SPEC, storm_question(), "none", NOW)
+    for phrase in ("Restate in one line", "Scheduled events", "strong, moderate, or weak", "out of 100", "half as long"):
+        assert phrase in binary_prompt
+    assert binary_prompt.rstrip().endswith("Probability: NN%")
+    numeric = QuestionView(title="How many points?", question_type="numeric", lower_bound=0, upper_bound=100)
+    numeric_prompt = build_prompt(SPEC, numeric, "none", NOW)
+    assert "1 in 5 outcomes" in numeric_prompt
+    assert "out of 100" not in numeric_prompt

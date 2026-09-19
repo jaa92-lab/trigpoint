@@ -16,10 +16,14 @@ and forecasts each new question once.
    - Price history from Yahoo Finance and CoinGecko, plus a statistical model:
      a driftless lognormal estimate based on recent volatility.
    - Related prediction markets on Manifold and Polymarket.
-   - The pages named in the resolution criteria.
+   - The pages named in the resolution criteria, PDFs included, cut to the
+     passages that mention the question's terms. Refused pages fall back to the
+     Internet Archive, and official counts also get a copy from a week earlier
+     to show the trend.
    - For weather questions, a daily forecast from Open-Meteo for the place the
      question names.
-   - News from AskNews.
+   - News from AskNews: the question itself, plus two targeted searches for
+     event questions.
 3. **Independent analysts.** Each analyst sees a different slice of evidence, and
    they run on different models:
    - A news analyst on Claude Opus 5.
@@ -28,6 +32,10 @@ and forecasts each new question once.
    - A resolution-source analyst on GPT-5.6 Terra. Gemini was dropped because
      Metaculus's shared key caps it at 20 requests a day.
    - A base-rate analyst on Claude, which sees no current evidence at all.
+
+   Every analyst works through the same short checklist: restate the rule, the
+   status quo, anything scheduled inside the window, how strong each piece of
+   evidence is, an "out of 100" sanity check, and a window check.
 4. **Two stages.** The two analysts best suited to the question run first. If
    they agree, each answers a second time, so no forecast rests on just two
    answers. The other two analysts join when the answers disagree, one fails, a

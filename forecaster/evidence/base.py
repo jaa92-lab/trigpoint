@@ -12,6 +12,9 @@ from datetime import datetime
 from typing import Any
 
 MAX_ITEM_CHARS = 1500
+# Source pages arrive already cut to the passages that matter (see sources.py), and a
+# weather forecast is one compact table, so both get more room than a news item.
+ITEM_CHAR_LIMITS = {"sources": 3400, "weather": 2500}
 
 SOURCE_HEADINGS = {
     "news": "News coverage",
@@ -121,8 +124,9 @@ def render_item(item: EvidenceItem) -> str:
     date = f" ({item.published_at:%Y-%m-%d})" if item.published_at else ""
     link = f" <{item.url}>" if item.url else ""
     body = item.text.strip()
-    if len(body) > MAX_ITEM_CHARS:
-        body = body[:MAX_ITEM_CHARS] + " [item truncated]"
+    limit = ITEM_CHAR_LIMITS.get(item.source, MAX_ITEM_CHARS)
+    if len(body) > limit:
+        body = body[:limit] + " [item truncated]"
     return f"### {item.title}{date}{link}\n{body}"
 
 

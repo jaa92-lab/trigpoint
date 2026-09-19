@@ -40,8 +40,8 @@ class FakeNews:
     def __init__(self) -> None:
         self.queries = []
 
-    async def search(self, query, clock):
-        self.queries.append((query, clock.now()))
+    async def search(self, query, clock, broad=True):
+        self.queries.append((query, clock.now(), broad))
         return [EvidenceItem("news", "Officials quiet", "No announcement yet.", "https://news.example/a", clock.now())]
 
 
@@ -53,8 +53,12 @@ class ScriptedModels:
         self.calls = []
         self.models = []
         self.prompts = {}
+        self.query_prompts = []
 
     async def __call__(self, model, prompt):
+        if "news search queries" in prompt:
+            self.query_prompts.append(prompt)
+            return self.answers.get("queries", "")
         name = next(spec.name for spec in ANALYSTS if spec.brief in prompt)
         self.calls.append(name)
         self.models.append(model)
@@ -311,3 +315,26 @@ async def test_a_failed_model_is_replaced_by_its_stand_in():
     assert "openrouter/anthropic/claude-sonnet-5" in models.models
     assert "claude-opus-5 failed (provider outage), so claude-sonnet-5 answered instead" in report.explanation
     assert 0.30 <= report.prediction <= 0.32
+
+
+async def test_event_questions_get_targeted_news_searches():
+    models = ScriptedModels(
+        {"queries": "Army Secretary nominee\nSenate Armed Services hearing", "news": "Probability: 30%", "outside_view": "Probability: 32%"}
+    )
+    bot = make_bot(models)
+    report = await bot.forecast_question(event_question())
+    assert [(query, broad) for query, _, broad in bot._news.queries] == [
+        (event_question().question_text, True),
+        ("Army Secretary nominee", False),
+        ("Senate Armed Services hearing", False),
+    ]
+    assert "Extra news searches: Army Secretary nominee; Senate Armed Services hearing" in report.explanation
+    assert "Resolves Yes if a nomination is formally sent to the Senate." in models.query_prompts[0]
+
+
+async def test_other_kinds_get_one_news_search():
+    models = ScriptedModels({"queries": "should not be used", "sources": "Probability: 66%", "news": "Probability: 64%"})
+    bot = make_bot(models)
+    await bot.forecast_question(denver_heat_question())
+    assert len(bot._news.queries) == 1
+    assert models.query_prompts == []

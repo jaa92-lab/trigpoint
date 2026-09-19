@@ -34,7 +34,7 @@ def offline_client() -> httpx.AsyncClient:
 class FakeNews:
     available = True
 
-    async def search(self, query, clock):
+    async def search(self, query, clock, broad=True):
         return [EvidenceItem("news", "Quiet week", "Nothing new.", "https://news.example/q", clock.now())]
 
 
@@ -266,3 +266,7 @@ def test_fetch_command_explains_withheld_resolutions(tmp_path, capsys, monkeypat
     assert code == 1
     assert "restricted API tier" in output
     assert "Bot Benchmarking Access Tier" in output
+
+
+def test_news_queries_switch():
+    assert pc.config_with_disabled(BotConfig(), ["news_queries"]).extra_news_queries == 0

@@ -4,7 +4,7 @@ from types import SimpleNamespace
 from forecaster.clock import Clock
 from forecaster.evidence.base import EvidenceItem
 from forecaster.evidence.cache import DiskCache
-from forecaster.evidence.news import NewsSearcher, articles_to_items
+from forecaster.evidence.news import NewsSearcher, articles_to_items, merge_news, parse_queries
 
 AS_OF = datetime(2026, 9, 7, 12, 0, tzinfo=timezone.utc)
 
@@ -51,3 +51,50 @@ async def test_pastcast_searches_are_served_from_the_cache(tmp_path):
     searcher = NewsSearcher(api_key="k", cache=cache)
     items = await searcher.search("storm", Clock.pinned(AS_OF))
     assert [i.title for i in items] == ["Cached"]
+
+
+class FakeAsk:
+    calls = []
+
+    def __init__(self, **kwargs) -> None:
+        pass
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args) -> bool:
+        return False
+
+    @property
+    def news(self):
+        return self
+
+    async def search_news(self, **kwargs):
+        FakeAsk.calls.append(kwargs)
+        return SimpleNamespace(as_dicts=[article(kwargs["query"], f"https://x/{len(FakeAsk.calls)}", AS_OF)])
+
+
+async def test_narrow_live_searches_make_one_latest_news_call(monkeypatch):
+    import asknews_sdk
+
+    FakeAsk.calls = []
+    monkeypatch.setattr(asknews_sdk, "AsyncAskNewsSDK", FakeAsk)
+    searcher = NewsSearcher(api_key="k", pause_seconds=0)
+    await searcher.search("broad question", Clock.live())
+    await searcher.search("narrow query", Clock.live(), broad=False)
+    assert [call["strategy"] for call in FakeAsk.calls] == ["latest news", "news knowledge", "latest news"]
+
+
+def test_generated_queries_are_cleaned_and_capped():
+    title = "Will Trump have formally nominated a permanent Secretary of the Army by September 18, 2026?"
+    text = f'1. Army Secretary nominee Senate\n- "Driscoll nomination hearing"\n{title}\na third query'
+    assert parse_queries(text, title, 2) == ["Army Secretary nominee Senate", "Driscoll nomination hearing"]
+    assert parse_queries("", title, 2) == []
+
+
+def test_merged_news_is_deduplicated_and_newest_first():
+    old = EvidenceItem("news", "Old", "t", "https://x/old", datetime(2026, 9, 1, tzinfo=timezone.utc))
+    new = EvidenceItem("news", "New", "t", "https://x/new", datetime(2026, 9, 6, tzinfo=timezone.utc))
+    undated = EvidenceItem("news", "Undated", "t", "https://x/u", None)
+    assert [i.title for i in merge_news([[old, undated], [new, old]], limit=5)] == ["New", "Old", "Undated"]
+    assert len(merge_news([[old, new, undated]], limit=2)) == 2

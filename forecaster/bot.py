@@ -50,10 +50,10 @@ from forecaster.analysts import (
 from forecaster.budget import CostLedger, TimeBudget, estimate_tokens, should_skip
 from forecaster.clock import Clock
 from forecaster.config import AnalystSpec, BotConfig, register_model_prices
-from forecaster.evidence.base import EvidenceBundle
+from forecaster.evidence.base import EvidenceBundle, EvidenceItem
 from forecaster.evidence.http import make_client
 from forecaster.evidence.markets import fetch_markets
-from forecaster.evidence.news import NewsSearcher
+from forecaster.evidence.news import NEWS_QUERY_PROMPT, NewsSearcher, merge_news, parse_queries
 from forecaster.evidence.prices import derive_price_prior, fetch_prices
 from forecaster.evidence.sources import fetch_sources
 from forecaster.evidence.weather import fetch_weather
@@ -253,14 +253,24 @@ class PanelForecaster(ForecastBot):
             if self.config.use_markets and "markets" in plan:
                 jobs["markets"] = fetch_markets(client, case.view.title, case.clock)
             if self.config.use_sources and "sources" in plan and case.triage.urls:
-                jobs["sources"] = fetch_sources(client, case.triage.urls, case.clock, self.config.max_source_urls)
+                compare_days = None
+                if case.triage.kind == "official_count" and case.budget.remaining() > 600.0:
+                    compare_days = self.config.source_compare_days or None
+                jobs["sources"] = fetch_sources(
+                    client,
+                    case.triage.urls,
+                    case.clock,
+                    self.config.max_source_urls,
+                    focus=f"{case.view.title} {case.view.resolution_criteria[:500]}",
+                    compare_days=compare_days,
+                )
             if self.config.use_weather and "weather" in plan:
                 jobs["weather"] = fetch_weather(
                     client, case.view.title, case.view.resolution_criteria, case.triage, case.clock
                 )
             if self.config.use_news and "news" in plan:
                 if self._news.available:
-                    jobs["news"] = self._news.search(case.view.title, case.clock)
+                    jobs["news"] = self._gather_news(case)
                 else:
                     bundle.notes.append("News search is not configured, so no news was gathered.")
             names = list(jobs)
@@ -273,8 +283,6 @@ class PanelForecaster(ForecastBot):
                 bundle.notes.append(f"{name.capitalize()} evidence was unavailable: {detail}")
             elif name == "prices":
                 bundle.prices.extend(result)
-            elif name == "news":
-                bundle.add(*result)
             else:
                 items, notes = result
                 bundle.add(*items)
@@ -289,6 +297,53 @@ class PanelForecaster(ForecastBot):
                 self.config.price_tail_factor,
             )
         return bundle
+
+    async def _gather_news(self, case: CaseFile) -> tuple[list[EvidenceItem], list[str]]:
+        """The question as asked, plus targeted searches for the kinds where news is the main evidence."""
+        main = self._news.search(case.view.title, case.clock)
+        wants_more = self.config.extra_news_queries > 0 and case.triage.kind in self.config.extra_news_kinds
+        if wants_more:
+            first, queries = await asyncio.gather(main, self._news_queries(case))
+        else:
+            first, queries = await main, []
+        batches = [first]
+        notes: list[str] = []
+        for query in queries:
+            try:
+                batches.append(await self._news.search(query, case.clock, broad=False))
+            except Exception as error:  # one failed search should not lose the others
+                notes.append(f"News search {query!r} failed: {error}")
+        if queries:
+            notes.append(f"Extra news searches: {'; '.join(queries)}")
+        return merge_news(batches, self.config.max_news_items), notes
+
+    async def _news_queries(self, case: CaseFile) -> list[str]:
+        """Targeted searches from the parser model. Pastcasts cache them, so reruns hit the news cache."""
+        cache = getattr(self._news, "cache", None)
+        key = f"{case.view.title}|{case.clock.now().isoformat()}"
+        if not case.clock.is_live and cache is not None:
+            cached = cache.get("news_queries", key)
+            if cached is not None:
+                return list(cached)
+        prompt = NEWS_QUERY_PROMPT.format(
+            count=self.config.extra_news_queries,
+            today=f"{case.clock.now():%Y-%m-%d}",
+            title=case.view.title,
+            criteria=(case.view.resolution_criteria or "Not provided.")[:600],
+        )
+        model = self.config.parser_model
+        if not case.ledger.can_afford(model, estimate_tokens(prompt), 500):
+            return []
+        try:
+            text = await asyncio.wait_for(self._llm_call(model, prompt), timeout=60)
+        except Exception as error:
+            logger.info("Writing news queries failed: %r", error)
+            return []
+        case.ledger.record("news_queries", model, estimate_tokens(prompt), estimate_tokens(text) * 3)
+        queries = parse_queries(text, case.view.title, self.config.extra_news_queries)
+        if not case.clock.is_live and cache is not None:
+            cache.set("news_queries", key, queries)
+        return queries
 
     # -------------------------------------------------------------- panel
 

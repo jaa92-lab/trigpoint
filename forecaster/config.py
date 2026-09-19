@@ -143,6 +143,14 @@ class BotConfig:
     use_weather: bool = True
     use_grounding: bool = True
     max_source_urls: int = 3
+    # Official-count questions also see an archived copy of the first source page from this
+    # many days earlier, so the analyst sees a trend. 0 switches it off.
+    source_compare_days: int = 7
+    # Targeted news searches written by the parser model, for the kinds where news is the
+    # main evidence. Each costs one AskNews call on live runs. 0 switches them off.
+    extra_news_queries: int = 2
+    extra_news_kinds: tuple[str, ...] = ("event", "generic")
+    max_news_items: int = 10
 
     # Budgets
     max_cost_per_question: float = 0.60

@@ -4,6 +4,10 @@ Live runs combine the last 48 hours with a broader recent-news search. Pastcast
 runs query the archive with an end timestamp at the pinned moment, drop any
 article dated after it, and cache results so replays spend no further calls.
 The free tier allows one call every ten seconds, so calls are serialized.
+
+Questions about events also get a couple of targeted searches written by the
+parser model. Those are "narrow": live, they read only the last 48 hours, one
+call each.
 """
 
 from __future__ import annotations
@@ -11,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 from collections.abc import Iterable
 from datetime import timedelta
 
@@ -76,18 +81,19 @@ class NewsSearcher:
     def available(self) -> bool:
         return bool((self.client_id and self.client_secret) or self.api_key)
 
-    async def search(self, query: str, clock: Clock) -> list[EvidenceItem]:
+    async def search(self, query: str, clock: Clock, broad: bool = True) -> list[EvidenceItem]:
+        """Live: the last 48 hours, plus a broader recent search when broad. Pastcast: the archive either way."""
         key = f"{query}|{'live' if clock.is_live else clock.now().isoformat()}"
         if not clock.is_live:
             cached = self.cache.get("news", key)
             if cached is not None:
                 return [EvidenceItem.from_json(item) for item in cached]
-        items = await self._search_uncached(query, clock)
+        items = await self._search_uncached(query, clock, broad)
         if not clock.is_live:
             self.cache.set("news", key, [item.to_json() for item in items])
         return items
 
-    async def _search_uncached(self, query: str, clock: Clock) -> list[EvidenceItem]:
+    async def _search_uncached(self, query: str, clock: Clock, broad: bool = True) -> list[EvidenceItem]:
         from asknews_sdk import AsyncAskNewsSDK
 
         async with self._lock:
@@ -104,14 +110,16 @@ class NewsSearcher:
                         return_type="dicts",
                         strategy="latest news",
                     )
-                    await asyncio.sleep(self.pause_seconds)
-                    background = await ask.news.search_news(
-                        query=query,
-                        n_articles=self.max_articles,
-                        return_type="dicts",
-                        strategy="news knowledge",
-                    )
-                    responses = [latest, background]
+                    responses = [latest]
+                    if broad:
+                        await asyncio.sleep(self.pause_seconds)
+                        background = await ask.news.search_news(
+                            query=query,
+                            n_articles=self.max_articles,
+                            return_type="dicts",
+                            strategy="news knowledge",
+                        )
+                        responses.append(background)
                 else:
                     end = clock.now()
                     start = end - timedelta(days=PASTCAST_LOOKBACK_DAYS)
@@ -128,3 +136,43 @@ class NewsSearcher:
             # Keep holding the lock so the next caller waits out the rate limit.
             await asyncio.sleep(self.pause_seconds)
         return articles_to_items(responses, clock)
+
+
+NEWS_QUERY_PROMPT = """Write {count} short news search queries, 3 to 8 words each, that would find the most useful recent news for forecasting this question.
+One should target the current status of the main subject. One should target any scheduled event, deadline, hearing, vote, or release inside the question's window.
+Do not repeat the question. Write one query per line, with no numbering or commentary.
+
+Today is {today}.
+Question: {title}
+Resolution criteria: {criteria}"""
+
+
+def parse_queries(text: str, title: str, limit: int) -> list[str]:
+    """Clean model-written search queries: strip numbering and quotes, and drop repeats of the question."""
+    queries: list[str] = []
+    question = title.strip().rstrip("?").lower()
+    for line in text.splitlines():
+        query = re.sub(r"^\s*(?:[-*\u2022]+|\d+[.)])\s*", "", line).strip().strip("\"'`").strip()
+        if not query or len(query.split()) > 12 or query.rstrip("?").lower() == question:
+            continue
+        if query.lower() not in {existing.lower() for existing in queries}:
+            queries.append(query)
+        if len(queries) == limit:
+            break
+    return queries
+
+
+def merge_news(batches: Iterable[Iterable[EvidenceItem]], limit: int) -> list[EvidenceItem]:
+    """Combine several searches: drop repeats, newest first, undated last."""
+    seen: set[str] = set()
+    merged: list[EvidenceItem] = []
+    for batch in batches:
+        for item in batch:
+            key = item.url or item.title
+            if key in seen:
+                continue
+            seen.add(key)
+            merged.append(item)
+    dated = sorted((i for i in merged if i.published_at), key=lambda i: i.published_at, reverse=True)
+    undated = [i for i in merged if not i.published_at]
+    return (dated + undated)[:limit]
