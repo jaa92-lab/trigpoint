@@ -139,3 +139,47 @@ def test_titles_without_dates_have_no_window():
 def test_missing_year_uses_the_nearest_future_year():
     window = extract_window("Will it snow on January 3?", datetime(2026, 11, 20, tzinfo=timezone.utc))
     assert window.end.year == 2027
+
+
+# Price questions from summer 2026 MiniBench rounds that name the market in words.
+MARKETS_IN_WORDS = [
+    ("What will Oklo Inc. (NYSE: OKLO) common stock close at on July 9, 2026?", "numeric", "price_level", "OKLO", "equity"),
+    ("What will the S&P 500 closing level be on Thursday, August 20, 2026?", "numeric", "price_level", "^GSPC", "market"),
+    ("Will the S&P 500 close at a new all-time record high on August 20, 2026?", "binary", "price_threshold", "^GSPC", "market"),
+    ("What will the KOSPI Composite Index closing level be on July 10, 2026?", "numeric", "price_level", "^KS11", "market"),
+    ("What will the front-month Brent crude oil futures settlement price be on July 24, 2026?", "numeric", "price_level", "BZ=F", "market"),
+    ("What will the USD/KRW exchange rate be at the close on August 20, 2026?", "numeric", "price_level", "KRW=X", "market"),
+    ("What will the ECB EUR/USD reference rate be on July 23, 2026?", "numeric", "price_level", "EURUSD=X", "market"),
+    ("What will the US 10-year Treasury par yield be at the close on Thursday, August 20, 2026?", "numeric", "price_level", "^TNX", "market"),
+    ("What will XRP's closing price be on August 20, 2026?", "numeric", "price_level", "XRP", "crypto"),
+]
+
+
+@pytest.mark.parametrize(("title", "question_type", "kind", "symbol", "asset_class"), MARKETS_IN_WORDS)
+def test_markets_named_in_words_route_to_price_data(title, question_type, kind, symbol, asset_class):
+    t = triage(question_text=title, question_type=question_type, now=NOW)
+    assert (t.kind, t.asset_class) == (kind, asset_class)
+    assert symbol in t.tickers
+
+
+@pytest.mark.parametrize(
+    "title",
+    [
+        "How many gold medals will Russia win through the July 9 finals session at the 2026 European Junior Swimming Championships?",
+        "Will the DOT approve the merger before September 30, 2026?",
+        "Will Dax Shepard announce a new podcast before October 1, 2026?",
+        "What will the French 10-year OAT–German Bund yield spread be at close on July 24, 2026?",
+    ],
+)
+def test_ordinary_words_do_not_become_market_symbols(title):
+    assert triage(question_text=title, question_type="binary", now=NOW).tickers == ()
+
+
+def test_exchange_prefixed_tickers_become_yahoo_symbols():
+    def tickers(title):
+        return triage(question_text=title, question_type="numeric", now=NOW).tickers
+
+    assert tickers("What will Tencent (HKEX: 700) close at on October 2, 2026?") == ("0700.HK",)
+    assert tickers("What will Samsung Electronics (KRX: 005930) close at on October 2, 2026?") == ("005930.KS",)
+    assert tickers("What will Shopify (TSX: SHOP) close at on October 2, 2026?") == ("SHOP.TO",)
+    assert tickers("What will IonQ (Nasdaq: IONQ) close at on October 2, 2026?") == ("IONQ",)

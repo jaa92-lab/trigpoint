@@ -9,7 +9,9 @@ and forecasts each new question once.
 1. **Triage.** The question title is classified as a price question, a price
    level, sports, weather, an official count, an event, or generic. That decides
    which evidence to gather and which analysts go first. Dates in the title
-   become a time window.
+   become a time window. Tickers, crypto symbols, and about 30 markets named in
+   words (the S&P 500, Brent crude, currency pairs, Treasury yields) are mapped
+   to price feeds.
 2. **Evidence, gathered in parallel.**
    - Price history from Yahoo Finance and CoinGecko, plus a statistical model:
      a driftless lognormal estimate based on recent volatility.

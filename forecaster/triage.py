@@ -25,6 +25,52 @@ KNOWN_CRYPTO_NAMES = (
 
 _UNIT = r"(thousand|million|billion|trillion|[kmbt])?"
 _TICKER_IN_PARENS = re.compile(r"\(([A-Z0-9]{1,6}(?:\.[A-Z]{1,3})?)\)")
+# Tickers written with their exchange, such as "(NYSE: OKLO)" or "(HKEX: 700)".
+_EXCHANGE_TICKER = re.compile(
+    r"\((NYSE American|NYSE Arca|NYSE|NASDAQ|Nasdaq|AMEX|OTCQX|OTC|TSXV|TSX|LSE|KRX|KOSDAQ|HKEX|SEHK|TSE|TYO|ASX|NSE|BSE|XETRA)"
+    r"\s*:\s*([A-Z0-9]{1,6}(?:\.[A-Z]{1,3})?)\)"
+)
+YAHOO_EXCHANGE_SUFFIX = {
+    "TSXV": ".V", "TSX": ".TO", "LSE": ".L", "KRX": ".KS", "KOSDAQ": ".KQ", "HKEX": ".HK", "SEHK": ".HK",
+    "TSE": ".T", "TYO": ".T", "ASX": ".AX", "NSE": ".NS", "BSE": ".BO", "XETRA": ".DE",
+}
+# Crypto symbols that are safe to read as bare uppercase words. DOT, ADA, LINK, NEAR and the
+# like are left out: in titles they are more often agencies, laws, or ordinary words.
+_BARE_CRYPTO = re.compile(r"\b(BTC|ETH|SOL|XRP|BNB|DOGE|TRX|AVAX|LTC|BCH|XLM|XMR|ZEC|SHIB|PEPE|HBAR)\b")
+# Markets that titles name in words, with their Yahoo Finance symbols. The symbols behind
+# recent MiniBench questions were checked live on 2026-09-18.
+KNOWN_MARKETS: tuple[tuple[re.Pattern[str], str], ...] = tuple(
+    (re.compile(pattern, re.IGNORECASE), symbol)
+    for pattern, symbol in (
+        (r"\bs&p\s*500\b", "^GSPC"),
+        (r"\bnasdaq[-\s]?100\b", "^NDX"),
+        (r"\bnasdaq\s+composite\b", "^IXIC"),
+        (r"\bdow\s+jones\b|(?-i:\bDJIA\b)", "^DJI"),
+        (r"\brussell\s+2000\b", "^RUT"),
+        (r"(?-i:\bVIX\b)", "^VIX"),
+        (r"\bkospi\b", "^KS11"),
+        (r"\bkosdaq\s+(?:composite|index)\b", "^KQ11"),
+        (r"\bnikkei(?:\s*225)?\b", "^N225"),
+        (r"\bhang\s+seng\b", "^HSI"),
+        (r"\bftse\s*100\b", "^FTSE"),
+        (r"(?-i:\bDAX\b)", "^GDAXI"),
+        (r"\bcac\s*40\b", "^FCHI"),
+        (r"\beuro\s+stoxx\s+50\b", "^STOXX50E"),
+        (r"\bsensex\b", "^BSESN"),
+        (r"\bnifty\s*50\b", "^NSEI"),
+        (r"\bbrent\s+(?:crude|oil|futures)\b", "BZ=F"),
+        (r"(?-i:\bWTI\b)|\bwest\s+texas\s+intermediate\b", "CL=F"),
+        (r"\bnatural\s+gas\s+(?:futures|price)", "NG=F"),
+        (r"\bgold\s+(?:price|futures)\b|\bspot\s+gold\b|\bprice\s+of\s+gold\b", "GC=F"),
+        (r"\bsilver\s+(?:price|futures)\b|\bspot\s+silver\b|\bprice\s+of\s+silver\b", "SI=F"),
+        (r"\bcopper\s+(?:price|futures)\b|\bprice\s+of\s+copper\b", "HG=F"),
+        (r"\b5[-\s]?year\s+(?:u\.?s\.?\s+)?treasury\b", "^FVX"),
+        (r"\b10[-\s]?year\s+(?:u\.?s\.?\s+)?treasury\b", "^TNX"),
+        (r"\b30[-\s]?year\s+(?:u\.?s\.?\s+)?treasury\b", "^TYX"),
+    )
+)
+_CURRENCY_CODES = "USD|EUR|GBP|JPY|CNY|CNH|KRW|INR|MXN|BRL|TRY|CHF|CAD|AUD|NZD|ZAR|RUB|SEK|NOK|HKD|SGD|TWD|IDR|PHP|THB|PLN|HUF|CZK|ILS|UAH"
+_FX_PAIR = re.compile(rf"\b({_CURRENCY_CODES})\s*/\s*({_CURRENCY_CODES})\b")
 _URL = re.compile(r"https?://[^\s)\]>\x22\x27<]+")
 _MONEY = re.compile(r"\$\s?(\d[\d,]*(?:\.\d+)?)\s*" + _UNIT + r"\b", re.IGNORECASE)
 _THRESHOLD_NUMBER = re.compile(
@@ -39,7 +85,7 @@ _CRYPTO_WORDS = re.compile(
 _PRICE_WORDS = re.compile(
     r"\b(price|prices|trade|trades|traded|trading|close|closes|closed|closing|"
     r"market\s+cap|market\s+capitalization|share\s+price|stock|shares|index|"
-    r"exchange\s+rate|yield|valuation)\b",
+    r"exchange\s+rate|reference\s+rate|yield|valuation)\b",
     re.IGNORECASE,
 )
 _RANK_WORDS = re.compile(r"\btop[-\s]?\d+\b|\brank(?:ed|ing)?\b", re.IGNORECASE)
@@ -150,7 +196,11 @@ def triage(
     title = question_text or ""
     body = " ".join(p for p in (resolution_criteria, fine_print, background_info) if p)
 
-    tickers = tuple(dict.fromkeys(_TICKER_IN_PARENS.findall(title)))
+    stock_tickers = _TICKER_IN_PARENS.findall(title) + [
+        exchange_symbol(exchange, code) for exchange, code in _EXCHANGE_TICKER.findall(title)
+    ]
+    markets = market_symbols(title)
+    tickers = tuple(dict.fromkeys([*stock_tickers, *_BARE_CRYPTO.findall(title), *markets]))
     lowered = title.lower()
     crypto_names = tuple(
         name for name in KNOWN_CRYPTO_NAMES if re.search(rf"\b{re.escape(name)}\b", lowered)
@@ -166,7 +216,14 @@ def triage(
     if kind == "generic" and body:
         kind = _classify(f"{title} {body}", question_type, has_asset)
 
-    asset_class = "crypto" if crypto_hit else ("equity" if tickers else None)
+    if crypto_hit:
+        asset_class = "crypto"
+    elif stock_tickers:
+        asset_class = "equity"
+    elif markets:
+        asset_class = "market"
+    else:
+        asset_class = None
     urls = tuple(dict.fromkeys(u.rstrip(".,;:") for u in _URL.findall(f"{title} {body}")))
     horizon = None
     if resolve_time is not None:
@@ -198,6 +255,25 @@ def _classify(text: str, question_type: str, has_asset: bool) -> str:
     if _EVENT_WORDS.search(text):
         return "event"
     return "generic"
+
+
+def exchange_symbol(exchange: str, code: str) -> str:
+    """Yahoo Finance's symbol for a ticker written with its exchange: HKEX 700 becomes 0700.HK."""
+    suffix = YAHOO_EXCHANGE_SUFFIX.get(exchange, "")
+    if not suffix or "." in code:
+        return code
+    if suffix == ".HK" and code.isdigit():
+        code = code.zfill(4)
+    return code + suffix
+
+
+def market_symbols(title: str) -> list[str]:
+    """Yahoo Finance symbols for indexes, commodities, yields, and currency pairs named in a title."""
+    found = [symbol for pattern, symbol in KNOWN_MARKETS if pattern.search(title)]
+    for base, quote in _FX_PAIR.findall(title):
+        if base != quote:
+            found.append(f"{quote}=X" if base == "USD" else f"{base}{quote}=X")
+    return list(dict.fromkeys(found))
 
 
 def _to_number(digits: str, unit: str | None) -> float:
