@@ -7,6 +7,9 @@ concurrency:
   group: forecast
   cancel-in-progress: false
 
+permissions:
+  contents: read
+
 jobs:
   test-questions:
     runs-on: ubuntu-latest

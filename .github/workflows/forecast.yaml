@@ -12,8 +12,12 @@ concurrency:
   group: forecast
   cancel-in-progress: false
 
+# Starting the next run needs "Read and write permissions" under Settings > Actions >
+# General > Workflow permissions. Without it that step is skipped harmlessly: a queued
+# scheduled run starts as soon as this one ends anyway.
 permissions:
-  actions: write # to start the next run
+  actions: write
+  contents: read
 
 jobs:
   forecast:
@@ -45,6 +49,7 @@ jobs:
           ASKNEWS_API_KEY: ${{ secrets.ASKNEWS_API_KEY }}
       - name: Start the next run
         if: ${{ !cancelled() && steps.forecast.outputs.code != '3' }}
+        continue-on-error: true # read-only token: the schedule covers it
         run: gh workflow run forecast.yaml --ref main
         env:
           GH_TOKEN: ${{ github.token }}
