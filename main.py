@@ -11,6 +11,10 @@
 
 Every mode first checks the OpenRouter credit balance (see forecaster/credits.py)
 and logs what the run actually spent.
+
+In tournament and baseline modes, --watch-minutes keeps one run checking for new
+questions, because GitHub's scheduler cannot be relied on to start runs on time.
+Exit code 3 means the credit floor stopped the run, so nothing should restart it.
 """
 
 from __future__ import annotations
@@ -24,6 +28,7 @@ import sys
 import dotenv
 
 EXPECTED_SKIPS = ("closes too soon", "not supported")
+CREDIT_EXHAUSTED = 3
 
 
 def configure_output() -> None:
@@ -41,6 +46,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--mode", choices=["tournament", "test_questions", "dry_run", "baseline"], default="tournament"
     )
     parser.add_argument("--url", action="append", default=[], help="Question URL for dry_run (repeatable)")
+    parser.add_argument(
+        "--watch-minutes",
+        type=float,
+        default=0.0,
+        help="Keep checking for new questions for this long (tournament and baseline modes)",
+    )
+    parser.add_argument("--interval-minutes", type=float, default=10.0, help="Wait between checks while watching")
     return parser
 
 
@@ -79,14 +91,10 @@ async def log_spend(before, reports) -> None:
     logging.info(f"This run spent ${spent:.2f} of OpenRouter credit on {forecasts} forecasts{per_forecast}.{left}")
 
 
-async def run(args: argparse.Namespace) -> int:
-    from forecasting_tools import MetaculusClient
-
-    from forecaster.config import BotConfig
+async def forecast_pass(args: argparse.Namespace, client, config) -> tuple[int, bool]:
+    """One sweep for new questions. Returns the exit code and whether watching should continue."""
     from forecaster.credits import plan_run
 
-    config = BotConfig()
-    client = MetaculusClient()
     before = await credit_status()
     plan = plan_run(
         before.remaining if before else None,
@@ -97,7 +105,7 @@ async def run(args: argparse.Namespace) -> int:
     )
     logging.info(plan.reason)
     if not plan.tournaments:
-        return 0
+        return CREDIT_EXHAUSTED, False
 
     if args.mode == "baseline":
         from forecaster.baseline import build_baseline_bot
@@ -134,8 +142,30 @@ async def run(args: argparse.Namespace) -> int:
     failures = [r for r in reports if isinstance(r, BaseException) and not is_expected_skip(r)]
     if reports and len(failures) == len(reports):
         logging.error("Every question failed; exiting with an error so the workflow is marked failed.")
-        return 1
-    return 0
+        return 1, True
+    return 0, True
+
+
+async def run(args: argparse.Namespace) -> int:
+    from forecasting_tools import MetaculusClient
+
+    from forecaster.config import BotConfig
+    from forecaster.watch import watch_loop
+
+    config = BotConfig()
+    client = MetaculusClient()
+    if args.watch_minutes <= 0 or args.mode not in ("tournament", "baseline"):
+        code, _ = await forecast_pass(args, client, config)
+        return code
+    logging.info(
+        f"Watching for new questions for {args.watch_minutes:.0f} minutes, checking every {args.interval_minutes:.0f}."
+    )
+    code, _ = await watch_loop(
+        lambda: forecast_pass(args, client, config),
+        watch_seconds=args.watch_minutes * 60.0,
+        interval_seconds=max(60.0, args.interval_minutes * 60.0),
+    )
+    return code
 
 
 def main() -> None:

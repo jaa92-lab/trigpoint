@@ -2,19 +2,23 @@ name: Forecast on new tournament questions
 
 on:
   workflow_dispatch:
-  # Live since 2026-09-18, after a clean run on the bot-testing area.
+  # A backstop only. GitHub delayed this schedule to roughly every 2.5 hours on
+  # 2026-09-21, so each run watches for hours and starts its own successor.
   schedule:
-    - cron: "7,27,47 * * * *" # every 20 minutes, off the hour; already-forecast questions are skipped
+    - cron: "*/30 * * * *"
 
 # Never run two forecasting jobs at once: each question accepts exactly one forecast.
 concurrency:
   group: forecast
   cancel-in-progress: false
 
+permissions:
+  actions: write # to start the next run
+
 jobs:
   forecast:
     runs-on: ubuntu-latest
-    timeout-minutes: 55
+    timeout-minutes: 320 # GitHub kills a job at 6 hours
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -24,10 +28,23 @@ jobs:
       - name: Install dependencies
         run: uv sync --locked --no-dev
       - name: Forecast
-        run: uv run --no-sync python main.py --mode tournament
+        id: forecast
+        run: |
+          set +e
+          uv run --no-sync python main.py --mode tournament --watch-minutes 240 --interval-minutes 10
+          code=$?
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          # 3 means the credit floor stopped the bot: report success, and do not start a successor.
+          [ "$code" -eq 3 ] && exit 0
+          exit "$code"
         env:
           METACULUS_TOKEN: ${{ secrets.METACULUS_TOKEN }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           ASKNEWS_CLIENT_ID: ${{ secrets.ASKNEWS_CLIENT_ID }}
           ASKNEWS_SECRET: ${{ secrets.ASKNEWS_SECRET }}
           ASKNEWS_API_KEY: ${{ secrets.ASKNEWS_API_KEY }}
+      - name: Start the next run
+        if: ${{ !cancelled() && steps.forecast.outputs.code != '3' }}
+        run: gh workflow run forecast.yaml --ref main
+        env:
+          GH_TOKEN: ${{ github.token }}
