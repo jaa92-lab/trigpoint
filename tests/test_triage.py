@@ -183,3 +183,24 @@ def test_exchange_prefixed_tickers_become_yahoo_symbols():
     assert tickers("What will Samsung Electronics (KRX: 005930) close at on October 2, 2026?") == ("005930.KS",)
     assert tickers("What will Shopify (TSX: SHOP) close at on October 2, 2026?") == ("SHOP.TO",)
     assert tickers("What will IonQ (Nasdaq: IONQ) close at on October 2, 2026?") == ("IONQ",)
+
+
+@pytest.mark.parametrize(
+    ("criteria", "expected"),
+    [
+        # Escaped Markdown, as in the question that 404'd on 2026-09-30.
+        (
+            "See [the list](https://en.wikipedia.org/wiki/Leader_of_the_Labour_Party_\\(UK\\)).",
+            "https://en.wikipedia.org/wiki/Leader_of_the_Labour_Party_(UK)",
+        ),
+        (
+            "Per https://en.wikipedia.org/wiki/Mercury_(planet).",
+            "https://en.wikipedia.org/wiki/Mercury_(planet)",
+        ),
+        ("Resolves per the [report](https://example.com/report).", "https://example.com/report"),
+        ("(source: https://example.com/a), then", "https://example.com/a"),
+    ],
+)
+def test_urls_keep_parentheses_that_belong_to_them(criteria, expected):
+    t = triage(question_text="Will it happen?", question_type="binary", now=NOW, resolution_criteria=criteria)
+    assert t.urls == (expected,)

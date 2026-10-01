@@ -71,7 +71,10 @@ KNOWN_MARKETS: tuple[tuple[re.Pattern[str], str], ...] = tuple(
 )
 _CURRENCY_CODES = "USD|EUR|GBP|JPY|CNY|CNH|KRW|INR|MXN|BRL|TRY|CHF|CAD|AUD|NZD|ZAR|RUB|SEK|NOK|HKD|SGD|TWD|IDR|PHP|THB|PLN|HUF|CZK|ILS|UAH"
 _FX_PAIR = re.compile(rf"\b({_CURRENCY_CODES})\s*/\s*({_CURRENCY_CODES})\b")
-_URL = re.compile(r"https?://[^\s)\]>\x22\x27<]+")
+# Parentheses are allowed inside a URL (Wikipedia titles use them); _clean_url drops the
+# unbalanced closing ones that belong to the surrounding text or a Markdown link.
+_URL = re.compile(r"https?://[^\s\]>\x22\x27<]+")
+_MARKDOWN_ESCAPE = re.compile(r"\\([()_*\[\]])")
 _MONEY = re.compile(r"\$\s?(\d[\d,]*(?:\.\d+)?)\s*" + _UNIT + r"\b", re.IGNORECASE)
 _THRESHOLD_NUMBER = re.compile(
     r"\b(?:above|below|over|under|exceeds?|exceeding|at\s+least|at\s+most|greater\s+than|"
@@ -183,6 +186,18 @@ class Triage:
         return self.kind in ("price_threshold", "price_level")
 
 
+def _clean_url(url: str) -> str:
+    """Undo Markdown escapes, then trim punctuation and unbalanced closing parentheses."""
+    url = _MARKDOWN_ESCAPE.sub(r"\1", url)
+    while True:
+        trimmed = url.rstrip(".,;:")
+        if trimmed.endswith(")") and trimmed.count(")") > trimmed.count("("):
+            trimmed = trimmed[:-1]
+        if trimmed == url:
+            return url
+        url = trimmed
+
+
 def triage(
     *,
     question_text: str,
@@ -224,7 +239,7 @@ def triage(
         asset_class = "market"
     else:
         asset_class = None
-    urls = tuple(dict.fromkeys(u.rstrip(".,;:") for u in _URL.findall(f"{title} {body}")))
+    urls = tuple(dict.fromkeys(_clean_url(u) for u in _URL.findall(f"{title} {body}")))
     horizon = None
     if resolve_time is not None:
         horizon = (resolve_time - now).total_seconds() / 86400.0
