@@ -1,0 +1,47 @@
+name: Scorecard
+
+# Scores the bot's own resolved forecasts. Read-only on Metaculus, and spends no model credit.
+# The report shows on the run's summary page and is also attached as a download.
+on:
+  workflow_dispatch:
+    inputs:
+      tournament:
+        description: Which forecasts to score
+        type: choice
+        options:
+          - all
+          - minibench
+          - seasonal
+        default: all
+
+permissions:
+  contents: read
+
+jobs:
+  scorecard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Install dependencies
+        run: uv sync --locked --no-dev
+      - name: Build the scorecard
+        run: |
+          case "$TOURNAMENT" in
+            minibench) filter="--tournament minibench" ;;
+            seasonal) filter="--tournament 33121" ;;
+            *) filter="" ;;
+          esac
+          uv run --no-sync python -m forecaster.evaluation.cli scorecard $filter
+          cat reports/scorecard-*.md >> "$GITHUB_STEP_SUMMARY"
+        env:
+          TOURNAMENT: ${{ inputs.tournament }}
+          METACULUS_TOKEN: ${{ secrets.METACULUS_TOKEN }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: scorecard-${{ inputs.tournament }}
+          path: reports/

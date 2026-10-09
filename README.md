@@ -141,6 +141,9 @@ MiniBench round, this scores what the bot did, with no model credit:
 uv run python -m forecaster.evaluation.cli scorecard --tournament minibench
 ```
 
+Or run **Scorecard** under GitHub Actions, which needs nothing installed: the report
+shows on the run's summary page and is attached as a download.
+
 It writes `reports/scorecard-<date>.md` with the mean score by question kind,
 a calibration table for yes/no forecasts (do the bot's 70%s come true about 70%
 of the time?), how often numeric outcomes fell inside the bot's 10th-90th
