@@ -48,7 +48,9 @@ and forecasts each new question once.
    - Yes/no forecasts are averaged in log-odds, pulled toward the statistical
      model when one applies, and kept between 2% and 98%.
    - Multiple-choice forecasts give every option at least 1%.
-   - Numeric forecasts average percentiles, with slightly widened tails.
+   - Numeric forecasts average percentiles, then stretch the 10th and 90th
+     percentiles 40% further from the median: the first scorecard showed the
+     ranges were too narrow.
    - Date forecasts work the same way, with dates as the percentiles.
 
 Every step lands in the comment posted with the forecast, and prize winners must

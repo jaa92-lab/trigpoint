@@ -131,7 +131,9 @@ class BotConfig:
     binary_ceiling: float = 0.98
     mc_floor: float = 0.01
     extremize: float = 1.0
-    numeric_tail_widening: float = 1.15
+    # Round 1 (Sept 21 - Oct 3, 2026) scorecard: only 11 of 18 numeric outcomes fell inside
+    # the 10th-90th range at 1.15, against about 80% if calibrated.
+    numeric_tail_widening: float = 1.4
     data_prior_weight: float = 0.35
     price_tail_factor: float = 1.25
 
