@@ -1,8 +1,9 @@
 # Forecasting bot
 
 A bot for Metaculus's FutureEval bot tournaments: the seasonal tournament and the
-two-week MiniBench rounds. It runs unattended on GitHub Actions every 20 minutes
-and forecasts each new question once.
+two-week MiniBench rounds. It runs unattended on GitHub Actions, checking for new
+questions every 5 minutes, and forecasts each new question once. Each run watches
+for 4 hours and then starts the next one.
 
 ## How it forecasts a question
 
@@ -75,6 +76,10 @@ Ideas carried over from two earlier projects:
   (a rate limit, an outage, a bad response) a stand-in model answers instead:
   Claude Sonnet 5 for Opus, and the two GPT analysts cover each other. The
   forecast comment says when a stand-in answered.
+- **Runs that never start.** If GitHub fails to give a run a machine, a small
+  workflow starts a replacement. It only restarts runs that executed no steps,
+  so a run that crashes stays stopped for a person to look at, and it gives up
+  after 3 such failures in an hour.
 - **Tournament rules.**
   - No human in the loop.
   - One forecast per question.

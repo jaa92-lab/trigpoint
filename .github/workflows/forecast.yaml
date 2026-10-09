@@ -35,7 +35,7 @@ jobs:
         id: forecast
         run: |
           set +e
-          uv run --no-sync python main.py --mode tournament --watch-minutes 240 --interval-minutes 10
+          uv run --no-sync python main.py --mode tournament --watch-minutes 240 --interval-minutes 5
           code=$?
           echo "code=$code" >> "$GITHUB_OUTPUT"
           # 3 means the credit floor stopped the bot: report success, and do not start a successor.

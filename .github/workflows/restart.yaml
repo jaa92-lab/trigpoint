@@ -1,0 +1,43 @@
+name: Restart forecasting after a run fails to start
+
+# On 2026-10-05 GitHub never gave a forecast run a machine ("job was not acquired"),
+# so it could not start its successor and the bot sat idle for 4 hours until the
+# delayed schedule fired. That cost 3 missed questions and 5 late ones.
+#
+# This restarts the chain only when the failed run executed no steps at all. A run
+# that started and then crashed stays stopped, so a bug never turns into a restart
+# loop. After 3 such failures in an hour it also stops, and the schedule takes over.
+on:
+  workflow_run:
+    workflows: ["Forecast on new tournament questions"]
+    types: [completed]
+
+permissions:
+  actions: write
+
+jobs:
+  restart:
+    if: ${{ github.event.workflow_run.conclusion == 'failure' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Restart if the run never started
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          steps=$(gh api "repos/$GH_REPO/actions/runs/$RUN_ID/jobs" --jq '[.jobs[].steps | length] | add // 0')
+          if [ "$steps" -gt 0 ]; then
+            echo "Run $RUN_ID ran $steps steps before failing: a real failure, so it is left for a person to look at."
+            exit 0
+          fi
+          since=$(date -u -d '1 hour ago' +%Y-%m-%dT%H:%M:%SZ)
+          recent=$(gh api "repos/$GH_REPO/actions/workflows/forecast.yaml/runs?status=failure&created=%3E$since" --jq '.total_count')
+          if [ "$recent" -gt 3 ]; then
+            echo "$recent forecast runs failed in the last hour. Not restarting; the schedule will retry."
+            exit 0
+          fi
+          sleep 60 # give GitHub a moment to recover before asking for another machine
+          gh workflow run forecast.yaml --ref main
+          echo "Run $RUN_ID never started. Started a replacement."
