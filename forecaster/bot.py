@@ -526,7 +526,10 @@ class PanelForecaster(ForecastBot):
         text = panel.format_value(quantiles, "numeric")
         anchor = None
         if prior_quantiles and self.config.data_prior_weight > 0:
-            anchor = f"The statistical model's quantiles were blended in with a {self.config.data_prior_weight:.0%} share."
+            if panel.prior_fits(prior_quantiles, question.lower_bound, question.upper_bound):
+                anchor = f"The statistical model's quantiles were blended in with a {self.config.data_prior_weight:.0%} share."
+            else:
+                anchor = "The statistical model was ignored: its answer falls far outside this question's range."
         return ReasonedPrediction(prediction_value=distribution, reasoning=self._report(case, results, stage, text, anchor))
 
     async def _run_forecast_on_date(

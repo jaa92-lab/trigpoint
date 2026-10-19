@@ -73,6 +73,23 @@ def test_combine_numeric_uses_the_prior_alone_when_every_analyst_fails():
         panel.combine_numeric([failed("a")], None, CONFIG, 0, 10, True, True)
 
 
+def test_combine_numeric_ignores_a_prior_that_measures_something_else():
+    # Question 45943: "on how many of Oct 15-16 will US spot Bitcoin ETFs see a net inflow?"
+    # The analysts said about 1 (correct); the Bitcoin price model said about 80,000.
+    analyst = dict(zip(LEVELS, (0, 0, 1, 1, 2, 2)))
+    btc_price = dict(zip(LEVELS, (74_000, 77_000, 79_500, 81_000, 83_500, 86_000)))
+    result = panel.combine_numeric([ok("a", analyst)], btc_price, CONFIG, -0.5, 2.5, False, False)
+    assert result[0.1] < 0.5 and result[0.4] < 1.5
+    assert not panel.prior_fits(btc_price, -0.5, 2.5)
+
+
+def test_prior_fits_allows_a_price_somewhat_outside_the_range():
+    prior = dict(zip(LEVELS, (95, 100, 105, 110, 115, 120)))
+    assert panel.prior_fits(prior, 50, 100)
+    assert not panel.prior_fits(prior, 0, 40)
+    assert not panel.prior_fits(None, 0, 100)
+
+
 def test_combine_multiple_choice_respects_the_floor():
     result = panel.combine_multiple_choice(
         [ok("a", {"X": 0.999, "Y": 0.001}), ok("b", {"X": 0.95, "Y": 0.05})], ["X", "Y"], CONFIG

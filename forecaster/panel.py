@@ -81,6 +81,22 @@ def _prior_weight(analyst_weight_total: float, share: float) -> float:
     return share * analyst_weight_total / (1.0 - share)
 
 
+def prior_fits(prior_quantiles: Mapping[float, float] | None, lower: float, upper: float) -> bool:
+    """Whether the statistical model answers this question at all.
+
+    Triage maps any question that names a ticker or coin to a price feed, so a count
+    question like "on how many of two days will Bitcoin ETFs see inflows" got a
+    Bitcoin price model (median about 80,000) blended into a 0-2 answer, and every
+    percentile was clamped to the upper bound. A median more than half the range
+    outside the range means the model measures something else.
+    """
+    if not prior_quantiles:
+        return False
+    lo, hi = min(lower, upper), max(lower, upper)
+    margin = 0.5 * (hi - lo)
+    return lo - margin <= agg.median_of(prior_quantiles) <= hi + margin
+
+
 def combine_numeric(
     results: Sequence[AnalystResult],
     prior_quantiles: Mapping[float, float] | None,
@@ -94,7 +110,7 @@ def combine_numeric(
     ok = successful(results)
     sets = [dict(r.value) for r in ok]
     weights = [r.weight for r in ok]
-    if prior_quantiles and config.data_prior_weight > 0:
+    if prior_fits(prior_quantiles, lower, upper) and config.data_prior_weight > 0:
         sets.append(dict(prior_quantiles))
         weights.append(_prior_weight(sum(weights), config.data_prior_weight))
     if not sets:
