@@ -54,6 +54,7 @@ from forecaster.evidence.base import EvidenceBundle, EvidenceItem
 from forecaster.evidence.http import make_client
 from forecaster.evidence.markets import fetch_markets
 from forecaster.evidence.news import NEWS_QUERY_PROMPT, NewsSearcher, merge_news, parse_queries
+from forecaster.evidence.web_news import WebNewsSearcher
 from forecaster.evidence.prices import derive_price_prior, fetch_prices
 from forecaster.evidence.sources import fetch_sources
 from forecaster.evidence.weather import fetch_weather
@@ -151,6 +152,10 @@ def research_digest(case: CaseFile) -> str:
     return "\n".join(lines)
 
 
+def default_news_searcher(config: BotConfig) -> NewsSearcher | WebNewsSearcher:
+    return WebNewsSearcher() if config.news_source == "web" else NewsSearcher()
+
+
 class PanelForecaster(ForecastBot):
     _max_concurrent_questions = 2
     _concurrency_limiter = asyncio.Semaphore(_max_concurrent_questions)
@@ -161,13 +166,13 @@ class PanelForecaster(ForecastBot):
         config: BotConfig | None = None,
         clock_policy: ClockPolicy | None = None,
         llm_call: LlmCall | None = None,
-        news: NewsSearcher | None = None,
+        news: NewsSearcher | WebNewsSearcher | None = None,
         http_client_factory: Callable[[], object] | None = None,
         **kwargs: object,
     ) -> None:
         self.config = config or BotConfig()
         self.clock_policy = clock_policy or live_clock
-        self._news = news if news is not None else NewsSearcher()
+        self._news = news if news is not None else default_news_searcher(self.config)
         self._client_factory = http_client_factory or make_client
         self._llms_by_model: dict[str, GeneralLlm] = {}
         self._llm_call: LlmCall = llm_call or self._call_model

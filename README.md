@@ -23,8 +23,11 @@ for 4 hours and then starts the next one.
      to show the trend.
    - For weather questions, a daily forecast from Open-Meteo for the place the
      question names.
-   - News from AskNews: the question itself, plus two targeted searches for
-     event questions.
+   - News from web search through OpenRouter, paid from the model credit: the
+     question itself, plus two targeted searches for event questions. A small
+     model writes a dated digest and the cited pages come along with it.
+     AskNews's free credit ran out on 2026-10-19, so it now serves only
+     pastcasts, which need its dated archive.
 3. **Independent analysts.** Each analyst sees a different slice of evidence, and
    they run on different models:
    - A news analyst on Claude Opus 5.
@@ -93,9 +96,11 @@ Ideas carried over from two earlier projects:
 
 1. Create a Metaculus account, add a bot account in settings, and copy its token.
 2. Request donated model credits through Metaculus's participation form
-   (https://forms.gle/aQdYMq9Pisrf1v7d8), which provides an OpenRouter key, and
-   sign up for free AskNews access as described on the
-   [resources page](https://www.metaculus.com/notebooks/38928/futureeval-resources-page/).
+   (https://forms.gle/aQdYMq9Pisrf1v7d8), which provides an OpenRouter key. Live
+   news needs nothing else. AskNews (see the
+   [resources page](https://www.metaculus.com/notebooks/38928/futureeval-resources-page/))
+   is only needed for pastcasting. **News check** under Actions runs one live
+   search to confirm news works.
 3. In the GitHub repository, add these under **Settings → Secrets and variables →
    Actions**: `METACULUS_TOKEN`, `OPENROUTER_API_KEY`, and either
    `ASKNEWS_API_KEY` or the older `ASKNEWS_CLIENT_ID` + `ASKNEWS_SECRET` pair.

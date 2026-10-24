@@ -139,6 +139,10 @@ class BotConfig:
 
     # Evidence switches
     use_news: bool = True
+    # "web": OpenRouter web search, paid from the model credit (AskNews's free credit ran
+    # out on 2026-10-19). "asknews": AskNews, which pastcasts always use because web
+    # search cannot be pinned to a past moment.
+    news_source: str = "web"
     use_markets: bool = True
     use_prices: bool = True
     use_sources: bool = True
@@ -149,7 +153,7 @@ class BotConfig:
     # many days earlier, so the analyst sees a trend. 0 switches it off.
     source_compare_days: int = 7
     # Targeted news searches written by the parser model, for the kinds where news is the
-    # main evidence. Each costs one AskNews call on live runs. 0 switches them off.
+    # main evidence. Each costs one news search on live runs. 0 switches them off.
     extra_news_queries: int = 2
     extra_news_kinds: tuple[str, ...] = ("event", "generic")
     max_news_items: int = 10
