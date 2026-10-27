@@ -199,6 +199,12 @@ def test_exchange_prefixed_tickers_become_yahoo_symbols():
         ),
         ("Resolves per the [report](https://example.com/report).", "https://example.com/report"),
         ("(source: https://example.com/a), then", "https://example.com/a"),
+        # Bold Markdown links, as in a 2026-10-25 midterm-polls question.
+        (
+            "**[the model](https://www.natesilver.net/p/nate-silver-2026-midterm-election-polls-model)**",
+            "https://www.natesilver.net/p/nate-silver-2026-midterm-election-polls-model",
+        ),
+        ("_see https://example.com/a_.", "https://example.com/a"),
     ],
 )
 def test_urls_keep_parentheses_that_belong_to_them(criteria, expected):

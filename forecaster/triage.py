@@ -187,10 +187,10 @@ class Triage:
 
 
 def _clean_url(url: str) -> str:
-    """Undo Markdown escapes, then trim punctuation and unbalanced closing parentheses."""
+    """Undo Markdown escapes, then trim punctuation, Markdown emphasis, and unbalanced closing parentheses."""
     url = _MARKDOWN_ESCAPE.sub(r"\1", url)
     while True:
-        trimmed = url.rstrip(".,;:")
+        trimmed = url.rstrip(".,;:*_")
         if trimmed.endswith(")") and trimmed.count(")") > trimmed.count("("):
             trimmed = trimmed[:-1]
         if trimmed == url:
