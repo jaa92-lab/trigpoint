@@ -1,9 +1,38 @@
 # Forecasting bot
 
+> **Retired on 2026-11-02.** The forecasting and restart workflows are disabled,
+> so nothing runs and no credit is spent. See [Final results](#final-results).
+> To restart, re-enable **Forecast on new tournament questions** and **Restart
+> forecasting after a run fails to start** under Actions, then run the first by hand.
+
 A bot for Metaculus's FutureEval bot tournaments: the seasonal tournament and the
-two-week MiniBench rounds. It runs unattended on GitHub Actions, checking for new
-questions every 5 minutes, and forecasts each new question once. Each run watches
-for 4 hours and then starts the next one.
+two-week MiniBench rounds. While it ran, it ran unattended on GitHub Actions, checking
+for new questions every 5 minutes, and forecast each new question once. Each run
+watched for 4 hours and then started the next one.
+
+## Final results
+
+Three MiniBench rounds plus the Fall 2026 seasonal questions, 173 resolved forecasts
+(scorecard of 2026-11-02). Peer score is what the tournament pays on; 0 is the
+average bot.
+
+| Round | Peer score per question | Coverage | What held it back |
+|---|---|---|---|
+| Sept 21 - Oct 3 | +2.2 | 74.9% | No news (bad AskNews key); questions missed before run chaining |
+| Oct 5 - 17 | about 0 | 94.8% | One price-model bug cost -115; a GitHub outage cost 3 questions |
+| Oct 19 - 31 | about -3.7 | | AskNews credit ran out the day the round opened |
+
+What worked: yes/no forecasts ended up calibrated (its 19%s happened 19% of the
+time), 82% of numeric outcomes fell inside the 10th-90th range against an 80%
+target, and official-count questions scored best. What cost the most was a handful
+of confident "unlikely" calls that happened, which better news coverage helps more
+than any setting. The round that would have tested the finished bot, with live
+news and every fix in place, opened the day it was retired.
+
+Lessons for a next bot: get a news source that cannot silently run dry, alert on
+"News evidence was unavailable" instead of finding it in logs a week later, and
+request Metaculus's benchmarking tier early so changes can be pastcast instead of
+waiting two weeks per round.
 
 ## How it forecasts a question
 
